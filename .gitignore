@@ -5,6 +5,9 @@
 
 # Dependencies
 node_modules/
+.next/
+*.tsbuildinfo
+*.egg-info/
 .venv/
 venv/
 
