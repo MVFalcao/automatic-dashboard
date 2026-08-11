@@ -1,0 +1,39 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+
+# Build and test output
+dist/
+build/
+coverage/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Generated/local data
+data/*
+!data/.gitkeep
+
+# Private source samples (never publish)
+private_source_*.xlsx
+private_source_*.xlsx:Zone.Identifier
+*:Zone.Identifier
+
+# Generated reports
+reports/*
+!reports/.gitkeep
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
