@@ -56,11 +56,14 @@
 - Accept dashboard screenshots and image files.
 - CSV and JSON are not reference-sample formats in the first version.
 
-### API data format
+### API data format and onboarding
 
-- API connection and API-description onboarding are deferred beyond the initial local version.
-- When API support is introduced, the supported response format will initially be JSON.
-- XML, CSV, and other API response formats are out of scope for that initial API integration.
+- API onboarding accepts an endpoint URL plus optional OpenAPI/Swagger input or representative JSON.
+- API responses are JSON only; XML, CSV, and other API response formats are out of scope.
+- Support API key, Bearer token, and OAuth authentication without storing secrets in project files.
+- Support bounded retries, rate limits, timeouts, and cursor-, page-, or link-based pagination.
+- Use incremental refresh only after the user confirms a cursor or updated-time field; otherwise use a full snapshot.
+- Explain inferred fields and mappings in business language and require confirmation before use.
 
 ### Initial preview data sources
 
@@ -117,10 +120,15 @@
 - Available outputs are a local web dashboard, an Excel report, and a PDF report.
 - Do not generate an unselected output.
 
-### Execution model
+### Execution model and scheduling
 
-- Generate dashboards and reports only when the user requests them.
-- Scheduled and automatic generation are out of scope for the initial local version.
+- Generate dashboards and reports on demand unless the user explicitly enables a schedule.
+- Scheduling is permitted only after the project and its source data are confirmed non-confidential.
+- Offer daily, weekly, and monthly presets plus an advanced cron expression with a timezone preview.
+- Scheduled jobs run locally and deliver only to a selected local folder; email and cloud delivery are out of scope.
+- Keep the latest 10 successful report sets by default, with a user-configurable retention limit.
+- A failed or partial run must never replace the last successful report.
+- Never activate scheduling without explicit user approval.
 
 ### Project persistence
 
@@ -170,8 +178,6 @@
 
 ## Deferred requirements
 
-- JSON API connection, authentication, mapping, and synchronization details.
-- Scheduled and automatic report generation.
 - Nonlocal and multi-user deployment.
 - macOS packaging and support.
 
