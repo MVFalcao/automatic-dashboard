@@ -75,6 +75,11 @@ textarea:focus { border-color: #397151; box-shadow: 0 0 0 4px rgba(57, 113, 81, 
 .upload-box legend { padding: 0 8px; font-weight: 700; }
 .upload-box label { color: #536159; font-size: 0.92rem; }
 .success { margin: 0; color: #247044; font-size: 0.9rem; }
+.discovery-review { padding-top: 10px; border-top: 1px solid #d5dbd6; }
+.discovery-review h2 { margin: 4px 0 8px; font-size: 1.2rem; }
+.discovery-review h3 { margin: 14px 0 6px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.discovery-review p, .discovery-review ul { margin: 6px 0; color: #536159; font-size: 0.88rem; }
+.discovery-review ul { padding-left: 20px; }
 .error { color: #a33030; }
 .summary { display: grid; gap: 12px; margin-top: 28px; }
 .summary div { padding: 14px 16px; border-radius: 12px; background: #f5f7f3; }

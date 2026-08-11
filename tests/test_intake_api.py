@@ -1,4 +1,7 @@
+from io import BytesIO
+
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 from dashboard.api.intake import IntakeStep
 from dashboard.api.main import app
@@ -50,9 +53,13 @@ def test_intake_session_can_be_discarded() -> None:
 
 
 def test_reference_upload_is_inspected_and_temporary_copy_deleted() -> None:
+    pdf = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.write(pdf)
     response = client.post(
         "/api/references/inspect",
-        files={"file": ("../reference.pdf", b"%PDF-1.7\nsynthetic", "application/pdf")},
+        files={"file": ("../reference.pdf", pdf.getvalue(), "application/pdf")},
         data={"confidential": "true", "permit_data_extraction": "false"},
     )
 
@@ -62,6 +69,8 @@ def test_reference_upload_is_inspected_and_temporary_copy_deleted() -> None:
     assert inspection["format"] == "pdf"
     assert inspection["confidential"] is True
     assert inspection["temporary_copy_deleted"] is True
+    assert inspection["manifest"]["format"] == "pdf"
+    assert inspection["draft_schema"]["requires_user_approval"] is True
 
 
 def test_reference_upload_rejects_unsupported_or_spoofed_files() -> None:

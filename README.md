@@ -55,6 +55,17 @@ The current guided setup implementation:
 - validates file content against its extension; and
 - deletes each temporary reference upload immediately after inspection.
 
+Reference discovery currently produces:
+
+- structural Excel evidence including sheets, formulas, merged ranges, charts, and field candidates;
+- PDF page geometry and optional text-line counts;
+- raster-image dimensions and safe SVG structure metadata;
+- a format-neutral manifest that excludes source record values; and
+- an explicitly unapproved draft schema showing proposed sections and fields.
+
+Field labels and type inference are included only when the user permits data
+extraction. The discovery layer does not infer or activate KPI formulas.
+
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 
