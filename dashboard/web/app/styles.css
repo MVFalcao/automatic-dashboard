@@ -64,6 +64,22 @@ textarea {
 textarea:focus { border-color: #397151; box-shadow: 0 0 0 4px rgba(57, 113, 81, 0.12); }
 .notes { margin: 18px 2px 24px; color: #6a746e; font-size: 0.88rem; line-height: 1.5; }
 .notes p { margin: 6px 0; }
+.upload-box {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #d5dbd6;
+  border-radius: 16px;
+}
+.upload-box legend { padding: 0 8px; font-weight: 700; }
+.upload-box label { color: #536159; font-size: 0.92rem; }
+.success { margin: 0; color: #247044; font-size: 0.9rem; }
+.error { color: #a33030; }
+.summary { display: grid; gap: 12px; margin-top: 28px; }
+.summary div { padding: 14px 16px; border-radius: 12px; background: #f5f7f3; }
+.summary dt { color: #647068; font-size: 0.75rem; font-weight: 750; text-transform: uppercase; }
+.summary dd { margin: 5px 0 0; line-height: 1.45; }
 .primary {
   width: 100%;
   border: 0;
