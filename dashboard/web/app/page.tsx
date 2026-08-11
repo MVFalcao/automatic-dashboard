@@ -13,6 +13,24 @@ type IntakeResponse = {
   confirmed_context: Record<string, string>;
 };
 
+type ReferenceInspection = {
+  filename: string;
+  format: string;
+  size_bytes: number;
+  temporary_copy_deleted: boolean;
+  manifest: {
+    sections: Array<{ name: string; formula_cells: number; chart_count: number }>;
+    assumptions: string[];
+    warnings: string[];
+  };
+  draft_schema: {
+    fields: Array<{ id: string; display_name: string; inferred_type: string; confidence: string }>;
+    sections: Array<{ id: string; display_name: string; presentation: string; confidence: string }>;
+    assumptions: string[];
+    requires_user_approval: boolean;
+  };
+};
+
 const copy = {
   en: {
     eyebrow: "Local dashboard workspace",
@@ -27,6 +45,10 @@ const copy = {
     confidential: "This file contains confidential data",
     extraction: "Allow the agent to inspect data contained in this file",
     inspected: "The temporary upload was inspected and deleted.",
+    discovery: "Discovered proposal",
+    fields: "Proposed fields",
+    sections: "Proposed sections",
+    approval: "Every proposal requires your approval before it can be used.",
     error: "The request could not be completed. Please try again.",
   },
   pt: {
@@ -42,6 +64,10 @@ const copy = {
     confidential: "Este arquivo contém dados confidenciais",
     extraction: "Permitir que o agente inspecione os dados contidos neste arquivo",
     inspected: "O arquivo temporário foi inspecionado e excluído.",
+    discovery: "Proposta identificada",
+    fields: "Campos propostos",
+    sections: "Seções propostas",
+    approval: "Toda proposta exige sua aprovação antes de ser utilizada.",
     error: "Não foi possível concluir a solicitação. Tente novamente.",
   },
 };
@@ -54,6 +80,7 @@ export default function SetupPage() {
   const [confidential, setConfidential] = useState(false);
   const [permitExtraction, setPermitExtraction] = useState(false);
   const [uploadInspected, setUploadInspected] = useState(false);
+  const [inspection, setInspection] = useState<ReferenceInspection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const text = useMemo(() => copy[language], [language]);
@@ -80,6 +107,7 @@ export default function SetupPage() {
     payload.append("permit_data_extraction", String(permitExtraction));
     const response = await fetch("/backend/api/references/inspect", { method: "POST", body: payload });
     if (!response.ok) throw new Error("Unable to inspect upload");
+    setInspection(await response.json());
     setUploadInspected(true);
   };
 
@@ -105,6 +133,7 @@ export default function SetupPage() {
       setConfidential(false);
       setPermitExtraction(false);
       setUploadInspected(false);
+      setInspection(null);
     } catch {
       setError(text.error);
     } finally {
@@ -149,6 +178,18 @@ export default function SetupPage() {
                 <label><input type="checkbox" checked={confidential} onChange={(event) => setConfidential(event.target.checked)} /> {text.confidential}</label>
                 <label><input type="checkbox" checked={permitExtraction} onChange={(event) => setPermitExtraction(event.target.checked)} /> {text.extraction}</label>
                 {uploadInspected && <p className="success">{text.inspected}</p>}
+                {inspection && (
+                  <div className="discovery-review">
+                    <h2>{text.discovery}</h2>
+                    <p>{text.approval}</p>
+                    <h3>{text.sections}</h3>
+                    <ul>{inspection.draft_schema.sections.map((section) => <li key={section.id}>{section.display_name} · {section.presentation} · {section.confidence}</li>)}</ul>
+                    <h3>{text.fields}</h3>
+                    {inspection.draft_schema.fields.length ? (
+                      <ul>{inspection.draft_schema.fields.map((field) => <li key={field.id}>{field.display_name} · {field.inferred_type} · {field.confidence}</li>)}</ul>
+                    ) : <p>—</p>}
+                  </div>
+                )}
               </fieldset>
             )}
             <div className="notes"><p>{text.formats}</p><p>{text.privacy}</p></div>

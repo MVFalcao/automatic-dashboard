@@ -10,6 +10,15 @@ from pathlib import Path
 from fastapi import UploadFile
 from pydantic import BaseModel, ConfigDict
 
+from automation.discovery import (
+    DraftDashboardSchema,
+    SampleManifest,
+    analyze_excel,
+    analyze_image,
+    analyze_pdf,
+    propose_dashboard_schema,
+)
+
 
 SUPPORTED_SUFFIXES = {".xlsx", ".pdf", ".png", ".jpg", ".jpeg", ".svg"}
 SIGNATURES = {
@@ -31,6 +40,8 @@ class UploadInspection(BaseModel):
     confidential: bool
     extracted_data_permitted: bool
     temporary_copy_deleted: bool
+    manifest: SampleManifest
+    draft_schema: DraftDashboardSchema
 
 
 def _validate_signature(suffix: str, header: bytes) -> None:
@@ -57,6 +68,7 @@ async def inspect_upload(
     digest = hashlib.sha256()
     size = 0
     header = b""
+    manifest: SampleManifest | None = None
     try:
         with os.fdopen(descriptor, "wb") as destination:
             while chunk := await upload.read(1024 * 1024):
@@ -66,10 +78,30 @@ async def inspect_upload(
                 digest.update(chunk)
                 size += len(chunk)
         _validate_signature(suffix, header)
+        try:
+            if suffix == ".xlsx":
+                manifest = analyze_excel(
+                    temporary_path,
+                    permit_data_extraction=extracted_data_permitted,
+                )
+            elif suffix == ".pdf":
+                manifest = analyze_pdf(
+                    temporary_path,
+                    permit_data_extraction=extracted_data_permitted,
+                )
+            else:
+                manifest = analyze_image(
+                    temporary_path,
+                    permit_data_extraction=extracted_data_permitted,
+                )
+        except Exception as exc:
+            raise ValueError("The reference file could not be analyzed safely") from exc
     finally:
         await upload.close()
         temporary_path.unlink(missing_ok=True)
 
+    if manifest is None:  # pragma: no cover - guarded by the supported suffix check
+        raise ValueError("The reference file could not be analyzed safely")
     return UploadInspection(
         filename=filename,
         format=suffix.removeprefix("."),
@@ -78,4 +110,6 @@ async def inspect_upload(
         confidential=confidential,
         extracted_data_permitted=extracted_data_permitted,
         temporary_copy_deleted=not temporary_path.exists(),
+        manifest=manifest,
+        draft_schema=propose_dashboard_schema(manifest),
     )
