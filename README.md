@@ -72,6 +72,11 @@ only when every section is approved and the user confirms the schema contains no
 confidential information. Approved schemas are then stored as immutable numbered
 YAML or JSON versions in the user-selected project folder.
 
+Synthetic preview generation renders the same deterministic invented records into
+the user-selected web, Excel, and PDF formats. Synthetic emails use the reserved
+`example.invalid` domain, every artifact contains a synthetic-data notice, and the
+preview endpoint requires the caller to choose the record count and output formats.
+
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 
