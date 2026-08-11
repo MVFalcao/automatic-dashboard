@@ -66,6 +66,12 @@ Reference discovery currently produces:
 Field labels and type inference are included only when the user permits data
 extraction. The discovery layer does not infer or activate KPI formulas.
 
+Section approval supports explicit dependencies: rejecting a section blocks only
+its dependents, while independent sections may continue. Activation is allowed
+only when every section is approved and the user confirms the schema contains no
+confidential information. Approved schemas are then stored as immutable numbered
+YAML or JSON versions in the user-selected project folder.
+
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 
