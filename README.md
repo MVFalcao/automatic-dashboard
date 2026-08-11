@@ -47,6 +47,17 @@ npm run dev
 
 Both services bind to the local computer only.
 
+The current guided setup implementation:
+
+- asks one English or Portuguese question at a time;
+- keeps intake sessions in process memory rather than storing conversation transcripts;
+- accepts XLSX, PDF, PNG, JPEG, and SVG reference uploads;
+- validates file content against its extension; and
+- deletes each temporary reference upload immediately after inspection.
+
+The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
+the browser does not require a network-exposed API.
+
 Checks:
 
 ```bash

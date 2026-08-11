@@ -1,58 +1,161 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Language = "en" | "pt";
+type IntakeStep = "goal" | "audience" | "reference_sample" | "outputs" | "project_location" | "confirmation" | "complete";
+
+type IntakeResponse = {
+  session_id: string;
+  language: Language;
+  step: IntakeStep;
+  question: string | null;
+  confirmed_context: Record<string, string>;
+};
 
 const copy = {
   en: {
     eyebrow: "Local dashboard workspace",
-    title: "What should your dashboard help you understand?",
-    body: "Describe the outcome in your own words. The agent will ask one clear question at a time and will not assume missing requirements.",
-    placeholder: "For example: I need to understand monthly sales and delayed orders.",
+    intro: "The agent asks one question at a time and does not assume missing requirements.",
+    placeholder: "Write your answer here…",
     formats: "Reference samples: Excel, PDF, PNG, JPEG, or SVG",
     privacy: "Your project stays on this computer. Confidential data is never saved without your explicit approval.",
-    button: "Continue",
+    continue: "Continue",
+    finish: "Finish setup",
+    complete: "Your initial dashboard requirements are ready for review.",
+    upload: "Optional reference sample",
+    confidential: "This file contains confidential data",
+    extraction: "Allow the agent to inspect data contained in this file",
+    inspected: "The temporary upload was inspected and deleted.",
+    error: "The request could not be completed. Please try again.",
   },
   pt: {
     eyebrow: "Área de trabalho local",
-    title: "O que o seu dashboard deve ajudar você a entender?",
-    body: "Descreva o resultado com suas palavras. O agente fará uma pergunta clara por vez e não presumirá requisitos ausentes.",
-    placeholder: "Exemplo: preciso entender as vendas mensais e os pedidos atrasados.",
+    intro: "O agente faz uma pergunta por vez e não presume requisitos ausentes.",
+    placeholder: "Escreva sua resposta aqui…",
     formats: "Amostras aceitas: Excel, PDF, PNG, JPEG ou SVG",
     privacy: "Seu projeto permanece neste computador. Dados confidenciais nunca são salvos sem sua aprovação explícita.",
-    button: "Continuar",
+    continue: "Continuar",
+    finish: "Concluir configuração",
+    complete: "Os requisitos iniciais do seu dashboard estão prontos para revisão.",
+    upload: "Amostra de referência opcional",
+    confidential: "Este arquivo contém dados confidenciais",
+    extraction: "Permitir que o agente inspecione os dados contidos neste arquivo",
+    inspected: "O arquivo temporário foi inspecionado e excluído.",
+    error: "Não foi possível concluir a solicitação. Tente novamente.",
   },
 };
 
 export default function SetupPage() {
   const [language, setLanguage] = useState<Language>("en");
-  const [goal, setGoal] = useState("");
+  const [session, setSession] = useState<IntakeResponse | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [confidential, setConfidential] = useState(false);
+  const [permitExtraction, setPermitExtraction] = useState(false);
+  const [uploadInspected, setUploadInspected] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const text = useMemo(() => copy[language], [language]);
+
+  useEffect(() => {
+    if (navigator.language.toLowerCase().startsWith("pt")) setLanguage("pt");
+  }, []);
+
+  const start = async (): Promise<IntakeResponse> => {
+    const response = await fetch("/backend/api/intake", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language }),
+    });
+    if (!response.ok) throw new Error("Unable to start intake");
+    return response.json();
+  };
+
+  const inspectFile = async () => {
+    if (!file) return;
+    const payload = new FormData();
+    payload.append("file", file);
+    payload.append("confidential", String(confidential));
+    payload.append("permit_data_extraction", String(permitExtraction));
+    const response = await fetch("/backend/api/references/inspect", { method: "POST", body: payload });
+    if (!response.ok) throw new Error("Unable to inspect upload");
+    setUploadInspected(true);
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!answer.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const active = session ?? (await start());
+      if (active.step === "reference_sample" && file && !uploadInspected) await inspectFile();
+      const response = await fetch(`/backend/api/intake/${active.session_id}/answers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: active.step, answer: answer.trim() }),
+      });
+      if (!response.ok) throw new Error("Unable to save answer");
+      const next: IntakeResponse = await response.json();
+      setSession(next);
+      setLanguage(next.language);
+      setAnswer("");
+      setFile(null);
+      setConfidential(false);
+      setPermitExtraction(false);
+      setUploadInspected(false);
+    } catch {
+      setError(text.error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const question = session?.question ?? (language === "pt"
+    ? "O que este dashboard deve ajudar você a entender ou decidir?"
+    : "What should this dashboard help you understand or decide?");
+  const isReferenceStep = session?.step === "reference_sample";
 
   return (
     <main className="shell">
       <section className="panel" aria-labelledby="setup-title">
-        <div className="language-switch" aria-label="Language">
-          <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
-          <button className={language === "pt" ? "active" : ""} onClick={() => setLanguage("pt")}>PT</button>
-        </div>
+        {!session && (
+          <div className="language-switch" aria-label="Language">
+            <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
+            <button className={language === "pt" ? "active" : ""} onClick={() => setLanguage("pt")}>PT</button>
+          </div>
+        )}
         <p className="eyebrow">{text.eyebrow}</p>
-        <h1 id="setup-title">{text.title}</h1>
-        <p className="intro">{text.body}</p>
-        <label htmlFor="goal" className="sr-only">{text.title}</label>
-        <textarea
-          id="goal"
-          value={goal}
-          onChange={(event) => setGoal(event.target.value)}
-          placeholder={text.placeholder}
-          rows={5}
-        />
-        <div className="notes">
-          <p>{text.formats}</p>
-          <p>{text.privacy}</p>
-        </div>
-        <button className="primary" disabled={!goal.trim()}>{text.button}</button>
+        {session?.step === "complete" ? (
+          <>
+            <h1 id="setup-title">{text.complete}</h1>
+            <dl className="summary">
+              {Object.entries(session.confirmed_context).map(([key, value]) => (
+                <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>
+              ))}
+            </dl>
+          </>
+        ) : (
+          <form onSubmit={submit}>
+            <h1 id="setup-title">{question}</h1>
+            <p className="intro">{text.intro}</p>
+            <label htmlFor="answer" className="sr-only">{question}</label>
+            <textarea id="answer" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={text.placeholder} rows={5} />
+            {isReferenceStep && (
+              <fieldset className="upload-box">
+                <legend>{text.upload}</legend>
+                <input type="file" accept=".xlsx,.pdf,.png,.jpg,.jpeg,.svg" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+                <label><input type="checkbox" checked={confidential} onChange={(event) => setConfidential(event.target.checked)} /> {text.confidential}</label>
+                <label><input type="checkbox" checked={permitExtraction} onChange={(event) => setPermitExtraction(event.target.checked)} /> {text.extraction}</label>
+                {uploadInspected && <p className="success">{text.inspected}</p>}
+              </fieldset>
+            )}
+            <div className="notes"><p>{text.formats}</p><p>{text.privacy}</p></div>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button className="primary" disabled={busy || !answer.trim()}>{busy ? "…" : session?.step === "confirmation" ? text.finish : text.continue}</button>
+          </form>
+        )}
       </section>
     </main>
   );
