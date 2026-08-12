@@ -10,6 +10,7 @@ from dashboard.api.previews import router as previews_router
 from dashboard.api.reports import router as reports_router
 from dashboard.api.hermes import router as hermes_router
 from dashboard.api.api_sources import router as api_sources_router
+from dashboard.api.schedules import router as schedules_router
 from dashboard.api.intake import (
     IntakeAnswerRequest,
     IntakeResponse,
@@ -31,6 +32,7 @@ app.include_router(dashboard_specs_router)
 app.include_router(reports_router)
 app.include_router(hermes_router)
 app.include_router(api_sources_router)
+app.include_router(schedules_router)
 
 
 @app.get("/health")

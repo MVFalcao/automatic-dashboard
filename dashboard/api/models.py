@@ -66,7 +66,7 @@ class SetupCapabilities(BaseModel):
         ]
     )
     local_only: bool = True
-    scheduled_generation: bool = False
+    scheduled_generation: bool = True
 
 
 class ProjectConfig(BaseModel):
