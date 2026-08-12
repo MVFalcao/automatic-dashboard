@@ -130,6 +130,37 @@ The local setup API exposes provider setup/status at `/api/providers` and
 The gateway follows Hermes' documented localhost API server configuration:
 <https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server/>.
 
+## Local installation and release checks
+
+Linux users can install into a user-owned directory without Docker or
+administrator access:
+
+```bash
+bash scripts/install-linux.sh
+"${XDG_DATA_HOME:-$HOME/.local/share}/universal-dashboard-agent/bin/dashboard-first-run"
+"${XDG_DATA_HOME:-$HOME/.local/share}/universal-dashboard-agent/bin/dashboard-start"
+```
+
+Windows users run `scripts/install-windows.ps1` in PowerShell. Both installers
+check Python 3.11+, Node.js 20.9+, install the web dependencies and Playwright
+Chromium, create an application-owned Hermes environment pinned to
+`hermes-agent==0.13.0`, and generate launchers. They never copy the ignored
+private source sample. The first-run command prints provider login guidance but
+never asks for or writes a provider secret. Provider keys remain in the OS
+credential store and native OAuth tokens remain in Hermes/provider stores.
+
+Every launch is loopback-only (`127.0.0.1`), uses a narrow web-origin CORS list,
+and enables local bearer authentication. The launcher creates that bearer token
+in process memory for the session; it is not written to project configuration.
+The generated `config/local.env` contains only non-secret host and port values.
+Read-only diagnostics are available with `python -m
+automation.release.diagnostics --json`. Release smoke tests are provided by
+`scripts/smoke-test-install.sh` and `scripts/smoke-test-install.ps1`.
+
+Uninstall requires an explicit app directory and confirmation. These commands
+remove only the application-managed directory and never select project folders
+automatically.
+
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 

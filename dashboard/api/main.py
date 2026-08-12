@@ -2,7 +2,10 @@
 
 from uuid import UUID
 
+import os
+
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from dashboard.api.approvals import router as approvals_router
 from dashboard.api.dashboard_specs import router as dashboard_specs_router
@@ -20,6 +23,7 @@ from dashboard.api.intake import (
 )
 from dashboard.api.models import SetupCapabilities
 from dashboard.api.uploads import UploadInspection, inspect_upload
+from dashboard.api.security import enforce_local_security
 
 
 app = FastAPI(
@@ -35,6 +39,20 @@ app.include_router(hermes_router)
 app.include_router(api_sources_router)
 app.include_router(schedules_router)
 app.include_router(drift_router)
+
+_origins = tuple(
+    origin.strip().rstrip("/")
+    for origin in os.environ.get("DASHBOARD_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+app.middleware("http")(enforce_local_security)
 
 
 @app.get("/health")

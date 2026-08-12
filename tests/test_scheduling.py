@@ -93,6 +93,30 @@ def test_runner_is_idempotent_and_keeps_last_success_after_failure(tmp_path: Pat
     assert len(store.list_artifacts(schedule_id="schedule-1")) == 2
 
 
+def test_partial_artifact_failure_does_not_destroy_last_successful_file(tmp_path: Path) -> None:
+    store = ScheduleStore(tmp_path / "state.sqlite3")
+    store.create_schedule(definition(tmp_path, outputs=["pdf", "xlsx"]))
+    calls = 0
+
+    def execute(schedule: ScheduleDefinition):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return [PipelineArtifact(output="pdf", filename="report.pdf", content=b"good")]
+        return [
+            PipelineArtifact(output="pdf", filename="report.pdf", content=b"bad"),
+            PipelineArtifact(output="csv", filename="unexpected.csv", content=b"invalid"),
+        ]
+
+    runner = LocalPipelineRunner(store, execute)
+    first = runner.run("schedule-1", scheduled_for=datetime(2026, 8, 11, 12, tzinfo=timezone.utc))
+    failed = runner.run("schedule-1", scheduled_for=datetime(2026, 8, 11, 12, 1, tzinfo=timezone.utc))
+
+    assert first.status is RunStatus.SUCCEEDED
+    assert failed.status is RunStatus.FAILED
+    assert (tmp_path / "reports" / "report.pdf").read_bytes() == b"good"
+
+
 def test_scheduler_http_endpoints_preview_and_approval_gate(tmp_path: Path, monkeypatch) -> None:
     import dashboard.api.schedules as schedules_api
 
