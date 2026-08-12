@@ -130,6 +130,14 @@
 - A failed or partial run must never replace the last successful report.
 - Never activate scheduling without explicit user approval.
 
+The local scheduling API persists only secret-free schedule, run, and artifact
+metadata in SQLite. Activation requires separate confirmation that the project
+and its source data are non-confidential. Reports are written to the selected
+local folder, with the latest 10 successful report sets retained by default;
+failed or partial runs remain in history and never replace the last successful
+set. Daily, weekly, monthly, and five-field cron schedules include a timezone
+preview before activation. OS notifications are optional and best effort.
+
 ### Project persistence
 
 - Save non-confidential project settings locally so a project can be reopened and reused.

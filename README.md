@@ -133,6 +133,26 @@ The gateway follows Hermes' documented localhost API server configuration:
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 
+JSON API onboarding is available at `/api/api-sources`. `POST /inspect` accepts
+either a representative JSON response or an OpenAPI/Swagger document and
+returns inferred fields, business-language mapping explanations, and review
+issues without retaining sample values. `PUT /{source_id}` stores only the
+secret-free source definition. `POST /sync` performs an authenticated JSON-only
+full or confirmed incremental refresh with bounded retries, rate limiting,
+cursor/page/link pagination, deterministic flattening/mapping, extraction
+provenance, and schema-drift classification. API keys and bearer tokens are
+looked up through credential references; OAuth tokens remain in the Hermes or
+provider protected store.
+
+Local schedules are available at `/api/schedules`. A schedule can use a daily,
+weekly, monthly, or five-field cron preset and includes a timezone-aware preview
+before activation. Activation requires explicit confirmation that both the
+project and its source data are non-confidential. Schedule, run, and artifact
+metadata are stored in SQLite; generated reports are written only to the
+selected local folder. Failed runs remain in history and never replace the
+latest successful report set. Successful report sets retain ten versions by
+default, configurable per schedule.
+
 Checks:
 
 ```bash
