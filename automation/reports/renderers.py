@@ -19,6 +19,12 @@ SYNTHETIC_NOTICE = {
 }
 
 
+def _excel_safe(value: object) -> object:
+    if isinstance(value, str) and value[:1] in {"=", "+", "-", "@"}:
+        return "'" + value
+    return value
+
+
 def _language(document: ReportDocument) -> str:
     return document.specification.localization.language.split("-")[0]
 
@@ -45,7 +51,7 @@ def render_excel(document: ReportDocument) -> bytes:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="23543C")
     for record in document.records:
-        details.append([record.get(field.id) for field in document.specification.fields])
+        details.append([_excel_safe(record.get(field.id)) for field in document.specification.fields])
     details.freeze_panes = "A2"
     details.auto_filter.ref = details.dimensions
     destination = BytesIO()

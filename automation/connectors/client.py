@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Protocol
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -69,6 +70,25 @@ def _drift(expected: ApiInspection, actual: ApiInspection) -> list[SchemaDriftEv
     return classify_schema_drift(expected, actual)
 
 
+def _safe_url(source: ApiSourceConfig, url: str, *, initial: bool = False) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ApiRequestError("API URL must use HTTP or HTTPS")
+    host = parsed.hostname.casefold()
+    blocked_names = {"localhost", "localhost.localdomain", "metadata.google.internal"}
+    if initial and (host in blocked_names or host.endswith(".local") or host.endswith(".internal")):
+        raise ApiRequestError("API endpoint resolves to a local or internal host")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if initial and address is not None and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
+        raise ApiRequestError("API endpoint resolves to a private or reserved address")
+    origin = urlsplit(str(source.endpoint))
+    if not initial and (parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)) != (origin.scheme, origin.hostname, origin.port or (443 if origin.scheme == "https" else 80)):
+        raise ApiRequestError("Pagination links may not change API origin")
+
+
 class ApiClient:
     """Fetch JSON responses with authentication, pagination and bounded retries."""
 
@@ -114,6 +134,7 @@ class ApiClient:
         self._last_request_at = time.monotonic()
 
     def _request(self, source: ApiSourceConfig, url: str, params: dict[str, Any]) -> Any:
+        _safe_url(source, url, initial=url == str(source.endpoint))
         headers = self._auth_headers(source)
         for attempt in range(source.max_retries + 1):
             self._wait_rate_limit(source)
@@ -180,6 +201,7 @@ class ApiClient:
         checkpoint_values: list[Any] = []
         provenance: list[ExtractionProvenance] = []
         url = str(source.endpoint)
+        _safe_url(source, url, initial=True)
         params: dict[str, Any] = {}
         if request.mode == "incremental":
             params["updated_since"] = request.checkpoint.isoformat() if isinstance(request.checkpoint, datetime) else request.checkpoint
