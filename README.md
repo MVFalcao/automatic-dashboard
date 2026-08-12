@@ -37,6 +37,9 @@ python -m pip install -r requirements-dev.txt
 uvicorn dashboard.api.main:app --host 127.0.0.1 --port 8000
 ```
 
+Alternatively, with `uv` installed, `uv sync --extra dev --locked` recreates the
+hash-locked environment recorded in `uv.lock`.
+
 Frontend:
 
 ```bash
@@ -89,6 +92,12 @@ imports cannot be marked for persistence.
 The deterministic metric engine supports approved counts, sums, averages, ratios,
 filters, groupings, rankings, period comparisons, and data-quality checks. Draft or
 unapproved metric definitions cannot execute.
+
+An approved `DashboardSpec` is the canonical source for web, Excel, and PDF output.
+It validates fields, mappings, metrics, filters, visualizations, section dependencies,
+layout, localization, privacy, and selected outputs as one strict contract. Approved
+versions store the generated structure as immutable JSON and compact approval metadata
+as YAML; checksums detect edits, and rollback moves only the active-version pointer.
 
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
