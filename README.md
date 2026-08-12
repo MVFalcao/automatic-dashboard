@@ -106,6 +106,12 @@ section order. The canonical render API recalculates synthetic metrics determini
 confidential specifications require explicit authorization and are returned for
 temporary in-memory display only.
 
+Excel and PDF reports consume the same validated `ReportDocument` used by the web
+output. Excel is generated with `openpyxl`; PDF is printed from the shared report
+HTML/CSS using Playwright Chromium. Confidential generation requires lifecycle
+approval, returns one-time download artifacts, and deletes the temporary file as
+soon as its bytes are transferred to the download response.
+
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 
