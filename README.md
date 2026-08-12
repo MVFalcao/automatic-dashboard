@@ -99,6 +99,37 @@ layout, localization, privacy, and selected outputs as one strict contract. Appr
 versions store the generated structure as immutable JSON and compact approval metadata
 as YAML; checksums detect edits, and rollback moves only the active-version pointer.
 
+After guided intake, the local web interface opens a bilingual synthetic review
+workspace with KPI cards, tables, and ECharts visualizations. Users can approve or
+request revisions by section and directly change the accent color, chart type, and
+section order. The canonical render API recalculates synthetic metrics deterministically;
+confidential specifications require explicit authorization and are returned for
+temporary in-memory display only.
+
+Excel and PDF reports consume the same validated `ReportDocument` used by the web
+output. Excel is generated with `openpyxl`; PDF is printed from the shared report
+HTML/CSS using Playwright Chromium. Confidential generation requires lifecycle
+approval, returns one-time download artifacts, and deletes the temporary file as
+soon as its bytes are transferred to the download response.
+
+The managed Hermes integration keeps its runtime in an application-owned
+environment pinned to `hermes-agent==0.13.0`. Its authenticated gateway is bound
+to `127.0.0.1` only and uses the documented `API_SERVER_KEY` bearer flow. API
+keys and app secrets are represented by opaque OS-keyring references; native
+OAuth flows (including Codex device-code login) remain in Hermes/provider
+protected stores. Provider routing selects the lowest estimated total
+input/output token count, honors an explicitly selected provider, and raises a
+confirmation-required error rather than silently falling back after failure.
+Structured responses are validated before use, and the optional local memory
+file stores only compact preferences, approved terminology/layout, and feedback
+after confidential-value filtering. Install the optional `keyring` package on
+the target OS to enable its credential backend.
+
+The local setup API exposes provider setup/status at `/api/providers` and
+`/api/hermes/status`; raw secrets are rejected by the strict request models.
+The gateway follows Hermes' documented localhost API server configuration:
+<https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server/>.
+
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 
