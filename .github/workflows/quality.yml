@@ -37,3 +37,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/install-linux.sh scripts/smoke-test-install.sh scripts/uninstall-linux.sh
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.9.0"
+      - shell: pwsh
+        run: ./scripts/smoke-test-install.ps1 -InstallDir "$env:RUNNER_TEMP\dashboard-agent" -SkipBrowser -SkipBuild
