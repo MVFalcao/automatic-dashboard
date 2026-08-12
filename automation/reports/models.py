@@ -31,6 +31,9 @@ class ReportRequest(BaseModel):
         expected = bool(self.document.specification.privacy.confidential_fields)
         if self.confidential != expected:
             raise ValueError("Report confidentiality must match the approved specification")
+        enabled = set(self.document.specification.outputs.enabled)
+        if not set(self.outputs) <= enabled:
+            raise ValueError("Report outputs must be enabled by the approved specification")
         return self
 
 

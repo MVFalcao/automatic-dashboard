@@ -108,6 +108,7 @@ textarea:focus { border-color: #397151; box-shadow: 0 0 0 4px rgba(57, 113, 81, 
 .review-sidebar .eyebrow { margin-top: 0; color: #9ec7ac; }
 .review-sidebar h1 { font-size: clamp(2rem, 3vw, 3rem); }
 .review-sidebar > p { color: #bdc8c1; line-height: 1.55; }
+.runtime-status { color: #9ec7ac !important; font-size: .78rem; }
 .review-sidebar dl { display: grid; gap: 10px; margin: 28px 0; }
 .review-sidebar dl div { padding: 10px 12px; border: 1px solid #33443a; border-radius: 10px; }
 .review-sidebar dt { color: #8fa098; font-size: .7rem; text-transform: uppercase; }

@@ -49,3 +49,8 @@ fallback, and no confidential persistence.
 - Run the full relevant suite before publishing each PR.
 - Do not activate external delivery or scheduling without explicit approval.
 - Re-run an independent security/release review after R8.
+
+## Current execution
+
+R1 is implemented in PR #19. R2–R8 are being added to the same PR as separate
+commits at the user's request; the final release gate remains mandatory.
