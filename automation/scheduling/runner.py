@@ -106,6 +106,8 @@ class LocalPipelineRunner:
         ))
         self.logger.emit("run_started", project_id=schedule.project_id, run_id=run.id, details={"schedule_id": schedule.id})
         written: list[Path] = []
+        staged: list[tuple[Path, Path]] = []
+        backups: list[tuple[Path, Path]] = []
         try:
             if self.executor is None:
                 raise RuntimeError("No local pipeline executor is configured")
@@ -118,16 +120,17 @@ class LocalPipelineRunner:
             destination = schedule.output_directory.resolve()
             destination.mkdir(parents=True, exist_ok=True)
             records: list[ArtifactRecord] = []
+            staging = destination / ".dashboard-staging" / run.id
+            staging.mkdir(parents=True, exist_ok=False)
             for artifact in generated:
                 if artifact.output not in schedule.outputs:
                     raise ValueError(f"Pipeline produced an unselected output: {artifact.output}")
                 target = (destination / artifact.filename).resolve()
                 if target.parent != destination:
                     raise ValueError("Pipeline artifact escaped the selected output folder")
-                temporary = target.with_name(f".{target.name}.{run.id}.tmp")
+                temporary = staging / artifact.filename
                 temporary.write_bytes(artifact.content)
-                temporary.replace(target)
-                written.append(target)
+                staged.append((temporary, target))
                 records.append(ArtifactRecord(
                     schedule_id=schedule.id,
                     run_id=run.id,
@@ -137,7 +140,18 @@ class LocalPipelineRunner:
                     created_at=datetime.now(timezone.utc),
                     size_bytes=len(artifact.content),
                 ))
+            # Promote the complete set only after every artifact has rendered.
+            # Backups make the promotion reversible if the filesystem fails
+            # midway, preserving the last successful report set.
+            for temporary, target in staged:
+                backup = staging / f".{target.name}.previous"
+                if target.exists():
+                    target.replace(backup)
+                    backups.append((backup, target))
+                temporary.replace(target)
+                written.append(target)
             self.store.add_artifacts(records)
+            shutil.rmtree(staging, ignore_errors=True)
             finished = datetime.now(timezone.utc)
             run = run.model_copy(update={
                 "status": RunStatus.SUCCEEDED, "finished_at": finished, "artifact_set_id": artifact_set_id,
@@ -161,6 +175,15 @@ class LocalPipelineRunner:
                     path.unlink(missing_ok=True)
                 except OSError:
                     pass
+            for backup, target in backups:
+                try:
+                    if target.exists():
+                        target.unlink()
+                    backup.replace(target)
+                except OSError:
+                    pass
+            if 'staging' in locals():
+                shutil.rmtree(staging, ignore_errors=True)
             # Exception text can contain source records (or credentials) from
             # an adapter.  SQLite history is operational metadata, so retain
             # the exception class but never persist its arbitrary message.

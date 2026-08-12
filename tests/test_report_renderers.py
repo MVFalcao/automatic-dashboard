@@ -37,7 +37,13 @@ def test_pdf_is_printed_from_shared_html() -> None:
 
 def test_confidential_artifact_requires_lifecycle_approval_and_is_deleted_after_transfer(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path)
-    request = ReportRequest(document=document(), outputs=[OutputKind.EXCEL], confidential=True)
+    spec = valid_spec()
+    payload = spec.model_dump(mode="json")
+    payload["fields"][0]["confidential"] = True
+    payload["privacy"]["confidential_fields"] = ["category"]
+    payload["privacy"]["allow_persistence"] = False
+    confidential_document = document().model_copy(update={"specification": type(spec).model_validate(payload)})
+    request = ReportRequest(document=confidential_document, outputs=[OutputKind.EXCEL], confidential=True)
     with pytest.raises(ValueError, match="lifecycle approval"):
         store.generate(request)
 
@@ -52,3 +58,8 @@ def test_confidential_artifact_requires_lifecycle_approval_and_is_deleted_after_
     assert not source_path.exists()
     with pytest.raises(KeyError):
         store.consume(artifact.id)
+
+
+def test_confidentiality_is_derived_from_approved_specification() -> None:
+    with pytest.raises(ValueError, match="must match"):
+        ReportRequest(document=document(), outputs=[OutputKind.EXCEL], confidential=True)

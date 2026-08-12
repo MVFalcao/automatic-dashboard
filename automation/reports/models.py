@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from automation.specification.models import DashboardSpec, OutputKind
 
@@ -25,6 +25,13 @@ class ReportRequest(BaseModel):
     outputs: list[OutputKind] = Field(min_length=1)
     confidential: bool = False
     confidential_lifecycle_approved: bool = False
+
+    @model_validator(mode="after")
+    def confidentiality_must_match_specification(self) -> "ReportRequest":
+        expected = bool(self.document.specification.privacy.confidential_fields)
+        if self.confidential != expected:
+            raise ValueError("Report confidentiality must match the approved specification")
+        return self
 
 
 class ReportArtifact(BaseModel):
