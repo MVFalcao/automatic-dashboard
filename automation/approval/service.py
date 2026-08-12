@@ -12,6 +12,7 @@ from automation.approval.models import (
     CreateApprovalRequest,
     SectionApproval,
 )
+from automation.observability.models import AuditEvent
 
 
 def _validate_dependencies(section_ids: set[str], dependencies: dict[str, list[str]]) -> None:
@@ -45,6 +46,7 @@ def _validate_dependencies(section_ids: set[str], dependencies: dict[str, list[s
 class ApprovalStore:
     def __init__(self) -> None:
         self._packages: dict[UUID, ApprovalPackage] = {}
+        self._audit: list[AuditEvent] = []
         self._lock = RLock()
 
     def create(self, request: CreateApprovalRequest) -> ApprovalPackage:
@@ -63,6 +65,7 @@ class ApprovalStore:
         )
         with self._lock:
             self._packages[package.approval_id] = package
+            self._audit.append(AuditEvent(action="approval_created", details={"approval_id": str(package.approval_id), "section_count": len(package.sections)}))
         return deepcopy(package)
 
     def get(self, approval_id: UUID) -> ApprovalPackage:
@@ -93,7 +96,18 @@ class ApprovalStore:
             section.status = ApprovalStatus.APPROVED if approve else ApprovalStatus.REJECTED
             section.feedback = feedback
             self._refresh(package)
+            self._audit.append(AuditEvent(action="section_decided", details={
+                "approval_id": str(approval_id), "section_id": section_id, "decision": section.status.value,
+            }))
             return deepcopy(package)
+
+    def audit_history(self, *, approval_id: UUID | None = None) -> list[AuditEvent]:
+        with self._lock:
+            events = list(self._audit)
+        if approval_id:
+            marker = str(approval_id)
+            events = [event for event in events if event.details.get("approval_id") == marker]
+        return events
 
     @staticmethod
     def _refresh(package: ApprovalPackage) -> None:

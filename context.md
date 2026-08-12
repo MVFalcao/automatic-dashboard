@@ -138,6 +138,21 @@ failed or partial runs remain in history and never replace the last successful
 set. Daily, weekly, monthly, and five-field cron schedules include a timezone
 preview before activation. OS notifications are optional and best effort.
 
+Operational privacy and observability rules:
+
+- Schema drift is classified as safe, review-required, or blocking. Safe changes
+  do not affect approved calculations; review-required changes create an
+  approval draft and synthetic preview; blocking changes stop publication while
+  the last successful report remains available.
+- Structured logs and SQLite audit history contain only redacted operational
+  metadata. They never contain source records, report values, credentials, or
+  personal data.
+- Run history records status, duration, source freshness, provider, and token
+  counts. Optional Hermes narrative analysis may fail without blocking the
+  deterministic report calculations.
+- Hermes prompts contain approved context, aggregate metrics, and quality
+  findings only. Source records and confidential fields are excluded by default.
+
 ### Project persistence
 
 - Save non-confidential project settings locally so a project can be reopened and reused.
