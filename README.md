@@ -33,7 +33,7 @@ Backend:
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -e '.[dev]'
+python -m pip install -r requirements-dev.txt
 uvicorn dashboard.api.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -44,6 +44,9 @@ cd dashboard/web
 npm install
 npm run dev
 ```
+
+Use the Node version in `.nvmrc` (20.9.0 or newer). `npm ci` is preferred in CI
+and clean environments because it installs exactly from `package-lock.json`.
 
 Both services bind to the local computer only.
 
@@ -76,6 +79,16 @@ Synthetic preview generation renders the same deterministic invented records int
 the user-selected web, Excel, and PDF formats. Synthetic emails use the reserved
 `example.invalid` domain, every artifact contains a synthetic-data notice, and the
 preview endpoint requires the caller to choose the record count and output formats.
+
+Population inspection accepts a local CSV/XLSX file or folder, reports structural
+issues and likely confidential columns without exposing record values, and proposes
+schema mappings for approval. Applying an import requires explicit mode and mapping
+approval; update mode additionally requires a confirmed identifier. Confidential
+imports cannot be marked for persistence.
+
+The deterministic metric engine supports approved counts, sums, averages, ratios,
+filters, groupings, rankings, period comparisons, and data-quality checks. Draft or
+unapproved metric definitions cannot execute.
 
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.

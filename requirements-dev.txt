@@ -1,1 +1,14 @@
-openpyxl>=3.1,<4
+# Reproducible local/CI environment. Runtime bounds remain in pyproject.toml.
+-e .
+defusedxml==0.7.1
+fastapi==0.115.14
+httpx==0.28.1
+openpyxl==3.1.5
+pillow==11.3.0
+pydantic==2.11.7
+pypdf==6.0.0
+pytest==8.4.1
+python-multipart==0.0.20
+pyyaml==6.0.2
+reportlab==4.4.3
+uvicorn[standard]==0.34.3

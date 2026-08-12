@@ -27,7 +27,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["dashboard.api*"]
+include = ["automation*", "dashboard*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
