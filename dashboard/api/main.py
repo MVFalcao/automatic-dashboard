@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 
 from dashboard.api.approvals import router as approvals_router
+from dashboard.api.dashboard_specs import router as dashboard_specs_router
 from dashboard.api.previews import router as previews_router
 from dashboard.api.intake import (
     IntakeAnswerRequest,
@@ -23,6 +24,7 @@ app = FastAPI(
 )
 app.include_router(approvals_router)
 app.include_router(previews_router)
+app.include_router(dashboard_specs_router)
 
 
 @app.get("/health")

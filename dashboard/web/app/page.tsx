@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import DashboardReview from "./DashboardReview";
 
 type Language = "en" | "pt";
 type IntakeStep = "goal" | "audience" | "reference_sample" | "outputs" | "project_location" | "confirmation" | "complete";
@@ -146,6 +147,10 @@ export default function SetupPage() {
     : "What should this dashboard help you understand or decide?");
   const isReferenceStep = session?.step === "reference_sample";
 
+  if (session?.step === "complete") {
+    return <DashboardReview language={language} context={session.confirmed_context} />;
+  }
+
   return (
     <main className="shell">
       <section className="panel" aria-labelledby="setup-title">
@@ -156,16 +161,7 @@ export default function SetupPage() {
           </div>
         )}
         <p className="eyebrow">{text.eyebrow}</p>
-        {session?.step === "complete" ? (
-          <>
-            <h1 id="setup-title">{text.complete}</h1>
-            <dl className="summary">
-              {Object.entries(session.confirmed_context).map(([key, value]) => (
-                <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>
-              ))}
-            </dl>
-          </>
-        ) : (
+        {
           <form onSubmit={submit}>
             <h1 id="setup-title">{question}</h1>
             <p className="intro">{text.intro}</p>
@@ -196,7 +192,7 @@ export default function SetupPage() {
             {error && <p className="error" role="alert">{error}</p>}
             <button className="primary" disabled={busy || !answer.trim()}>{busy ? "…" : session?.step === "confirmation" ? text.finish : text.continue}</button>
           </form>
-        )}
+        }
       </section>
     </main>
   );

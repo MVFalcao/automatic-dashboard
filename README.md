@@ -99,6 +99,13 @@ layout, localization, privacy, and selected outputs as one strict contract. Appr
 versions store the generated structure as immutable JSON and compact approval metadata
 as YAML; checksums detect edits, and rollback moves only the active-version pointer.
 
+After guided intake, the local web interface opens a bilingual synthetic review
+workspace with KPI cards, tables, and ECharts visualizations. Users can approve or
+request revisions by section and directly change the accent color, chart type, and
+section order. The canonical render API recalculates synthetic metrics deterministically;
+confidential specifications require explicit authorization and are returned for
+temporary in-memory display only.
+
 The frontend proxies `/backend/*` to the FastAPI service at `127.0.0.1:8000`, so
 the browser does not require a network-exposed API.
 
