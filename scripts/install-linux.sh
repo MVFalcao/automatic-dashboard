@@ -95,6 +95,10 @@ cat >"$INSTALL_DIR/bin/dashboard-first-run" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+set -a
+. "$BASE_DIR/config/local.env"
+set +a
+export DASHBOARD_LOCAL_AUTH_TOKEN=$("$BASE_DIR/.venv/bin/python" -c 'import secrets; print(secrets.token_urlsafe(32))')
 exec "$BASE_DIR/.venv/bin/python" -m automation.release.first_run --root "$BASE_DIR" --runtime "$BASE_DIR/.hermes-runtime" "$@"
 EOF
 chmod 700 "$INSTALL_DIR/bin/dashboard-first-run"

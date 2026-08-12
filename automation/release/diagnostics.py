@@ -177,6 +177,7 @@ def run_diagnostics(
     python = python_executable or sys.executable
     node = node_executable or shutil.which("node") or "node"
     runtime = hermes_environment or root / ".hermes-runtime"
+    browser = browser_path or Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", root / ".playwright"))
     checks: list[Diagnostic] = [
         _check_version("python", [python, "--version"], MIN_PYTHON, "Python"),
     ]
@@ -187,7 +188,7 @@ def run_diagnostics(
     hermes_binary = runtime / ("Scripts/hermes.exe" if platform.system() == "Windows" else "bin/hermes")
     checks.append(Diagnostic("hermes-runtime", hermes_binary.is_file(), f"Managed Hermes runtime: {runtime}", "Run the installer again to provision Hermes."))
     if require_browser:
-        checks.append(_browser_check(python, browser_path))
+        checks.append(_browser_check(python, browser))
     checks.extend(check_network_configuration(api_host=api_host, web_host=web_host, cors_origins=cors_origins))
     return DiagnosticReport(platform=platform.system().lower(), checks=tuple(checks))
 

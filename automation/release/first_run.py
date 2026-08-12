@@ -7,6 +7,8 @@ prints commands and links only; it never asks for or stores a provider secret.
 from __future__ import annotations
 
 import argparse
+import os
+import secrets
 from pathlib import Path
 
 from automation.agent.models import ProviderName
@@ -19,6 +21,10 @@ def main() -> int:
     parser.add_argument("--runtime", type=Path)
     parser.add_argument("--diagnostics-only", action="store_true")
     args = parser.parse_args()
+    # The launcher creates the same kind of ephemeral token. Creating one for
+    # this read-only check avoids asking users to persist an application secret.
+    if os.environ.get("DASHBOARD_ENFORCE_LOCAL_SECURITY", "").casefold() in {"1", "true", "yes"} and not os.environ.get("DASHBOARD_LOCAL_AUTH_TOKEN"):
+        os.environ["DASHBOARD_LOCAL_AUTH_TOKEN"] = secrets.token_urlsafe(32)
     from automation.release.diagnostics import run_diagnostics
 
     report = run_diagnostics(root=args.root, hermes_environment=args.runtime)

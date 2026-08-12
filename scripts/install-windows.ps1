@@ -75,6 +75,8 @@ PLAYWRIGHT_BROWSERS_PATH=$playwright
 $firstRun = Join-Path $InstallDir "dashboard-first-run.ps1"
 @"
 `$ErrorActionPreference = 'Stop'
+`$env:DASHBOARD_ENFORCE_LOCAL_SECURITY = 'true'
+`$env:DASHBOARD_LOCAL_AUTH_TOKEN = (& '$venvPython' -c "import secrets; print(secrets.token_urlsafe(32))").Trim()
 & '$venvPython' -m automation.release.first_run --root '$InstallDir' --runtime '$hermes' `$args
 "@ | Set-Content -Encoding UTF8 $firstRun
 $start = Join-Path $InstallDir "dashboard-start.ps1"
