@@ -15,6 +15,7 @@ if [[ -f "$INSTALL_DIR/config/local.env" ]]; then
   . "$INSTALL_DIR/config/local.env"
   set +a
 fi
+export DASHBOARD_LOCAL_AUTH_TOKEN=$($INSTALL_DIR/.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')
 "$INSTALL_DIR/.venv/bin/python" -m automation.release.diagnostics --root "$INSTALL_DIR" --runtime "$INSTALL_DIR/.hermes-runtime" --no-node --no-browser
 cd "$INSTALL_DIR"
 "$INSTALL_DIR/.venv/bin/python" -m uvicorn dashboard.api.main:app --host 127.0.0.1 --port "$API_PORT" >/tmp/universal-dashboard-smoke.log 2>&1 &

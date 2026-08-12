@@ -138,6 +138,23 @@ failed or partial runs remain in history and never replace the last successful
 set. Daily, weekly, monthly, and five-field cron schedules include a timezone
 preview before activation. OS notifications are optional and best effort.
 
+Release/install decisions:
+
+- Windows and Linux installers are user-scoped and do not require Docker or
+  administrator access where the operating system permits it.
+- Installers provision an application-owned Python environment, Node frontend,
+  Playwright Chromium, and pinned `hermes-agent==0.13.0`; a global Hermes
+  installation is never used.
+- Services bind to `127.0.0.1`, CORS is restricted to the local web origin, and
+  the local API bearer token is generated in process memory at launch. It is
+  never persisted in project files or logs.
+- Provider API keys and app secrets use the OS credential store; native OAuth
+  credentials remain in Hermes/provider protected stores. First-run diagnostics
+  provide provider setup guidance without collecting secrets.
+- Uninstall requires an explicit application directory and confirmation; project
+  folders are not removed automatically. Clean-machine smoke scripts verify
+  dependency checks and the loopback `/health` endpoint.
+
 Operational privacy and observability rules:
 
 - Schema drift is classified as safe, review-required, or blocking. Safe changes
