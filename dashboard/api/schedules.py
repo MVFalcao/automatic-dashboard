@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from automation.scheduling.cron import CronError, preview_schedule
 from automation.scheduling.models import ArtifactRecord, RunRecord, ScheduleDefinition
+from automation.observability.models import AuditEvent
 from automation.scheduling.runner import LocalPipelineRunner, PipelineExecutor
 from automation.scheduling.store import ScheduleStore
 
@@ -161,3 +162,12 @@ def list_schedule_artifacts(schedule_id: str) -> list[ArtifactRecord]:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Schedule not found") from exc
     return schedule_store.list_artifacts(schedule_id=schedule_id)
+
+
+@router.get("/{schedule_id}/audit", response_model=list[AuditEvent])
+def list_schedule_audit(schedule_id: str, limit: int = 100) -> list[AuditEvent]:
+    try:
+        schedule_store.get_schedule(schedule_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Schedule not found") from exc
+    return schedule_store.list_audit(project_id=schedule_store.get_schedule(schedule_id).project_id, limit=limit)

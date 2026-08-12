@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from automation.agent.models import ProviderName, TaskRequest, TaskResponse
 from automation.agent.routing import ProviderRouter, ProviderSelection
 from automation.agent.validation import StructuredResponseValidator
+from automation.observability.logging import StructuredLogger
 
 
 class HermesTransport(Protocol):
@@ -56,3 +57,23 @@ class HermesTaskRunner:
         fallback_request = request.model_copy(update={"requested_provider": fallback_provider})
         return self.execute(fallback_request, response_type)
 
+    def execute_optional(
+        self,
+        request: TaskRequest,
+        response_type: type[T],
+        *,
+        logger: StructuredLogger | None = None,
+    ) -> tuple[ProviderSelection, T] | None:
+        """Run optional narrative analysis without blocking deterministic reports.
+
+        Provider failures and malformed structured responses are recorded only
+        by class.  The caller can continue publishing authoritative metrics.
+        Cross-provider fallback remains explicit through ``execute_after...``.
+        """
+
+        try:
+            return self.execute(request, response_type)
+        except Exception as exc:
+            if logger is not None:
+                logger.emit("optional_hermes_failed", level="WARNING", details={"failure_class": type(exc).__name__})
+            return None

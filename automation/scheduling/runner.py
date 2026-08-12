@@ -8,15 +8,29 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Protocol, Sequence
 from uuid import uuid4
 
 from automation.scheduling.models import ArtifactRecord, PipelineArtifact, RunRecord, RunStatus, ScheduleDefinition
 from automation.scheduling.store import ScheduleStore
+from automation.observability.logging import StructuredLogger
+from automation.observability.models import AuditEvent
 
 
 class PipelineExecutor(Protocol):
-    def __call__(self, schedule: ScheduleDefinition) -> Sequence[PipelineArtifact]: ...
+    def __call__(self, schedule: ScheduleDefinition) -> Sequence[PipelineArtifact] | "PipelineExecution": ...
+
+
+@dataclass(frozen=True)
+class PipelineExecution:
+    """Optional production metadata returned alongside deterministic artifacts."""
+
+    artifacts: Sequence[PipelineArtifact]
+    freshness_at: datetime | None = None
+    token_input: int = 0
+    token_output: int = 0
+    provider: str | None = None
 
 
 class NotificationSink(Protocol):
@@ -54,10 +68,12 @@ class LocalPipelineRunner:
         store: ScheduleStore,
         executor: PipelineExecutor | None = None,
         notifier: NotificationSink | None = None,
+        logger: StructuredLogger | None = None,
     ) -> None:
         self.store = store
         self.executor = executor
         self.notifier = notifier or OsNotificationSink()
+        self.logger = logger or StructuredLogger()
 
     @staticmethod
     def _key(schedule_id: str, scheduled_for: datetime) -> str:
@@ -84,11 +100,18 @@ class LocalPipelineRunner:
         run, claimed = self.store.create_run_if_absent(run)
         if not claimed:
             return run
+        self.store.record_audit(AuditEvent(
+            action="run_started", project_id=schedule.project_id, run_id=run.id,
+            details={"schedule_id": schedule.id, "scheduled_for": due.isoformat()},
+        ))
+        self.logger.emit("run_started", project_id=schedule.project_id, run_id=run.id, details={"schedule_id": schedule.id})
         written: list[Path] = []
         try:
             if self.executor is None:
                 raise RuntimeError("No local pipeline executor is configured")
-            generated = list(self.executor(schedule))
+            outcome = self.executor(schedule)
+            execution = outcome if isinstance(outcome, PipelineExecution) else PipelineExecution(artifacts=list(outcome))
+            generated = list(execution.artifacts)
             if not generated:
                 raise RuntimeError("The local pipeline returned no report artifacts")
             artifact_set_id = uuid4().hex
@@ -115,8 +138,19 @@ class LocalPipelineRunner:
                     size_bytes=len(artifact.content),
                 ))
             self.store.add_artifacts(records)
-            run = run.model_copy(update={"status": RunStatus.SUCCEEDED, "finished_at": datetime.now(timezone.utc), "artifact_set_id": artifact_set_id})
+            finished = datetime.now(timezone.utc)
+            run = run.model_copy(update={
+                "status": RunStatus.SUCCEEDED, "finished_at": finished, "artifact_set_id": artifact_set_id,
+                "duration_seconds": max(0.0, (finished - started).total_seconds()),
+                "freshness_at": execution.freshness_at, "token_input": execution.token_input,
+                "token_output": execution.token_output, "provider": execution.provider,
+            })
             self.store.update_run(run)
+            self.store.record_audit(AuditEvent(action="run_succeeded", project_id=schedule.project_id, run_id=run.id, details={
+                "duration_seconds": run.duration_seconds, "artifact_set_id": artifact_set_id,
+                "token_input": run.token_input, "token_output": run.token_output,
+            }))
+            self.logger.emit("run_succeeded", project_id=schedule.project_id, run_id=run.id, details={"duration_seconds": run.duration_seconds, "artifact_count": len(records)})
             self._retain_successful_sets(schedule)
             return self.store.get_run(run.id)
         except Exception as exc:
@@ -131,10 +165,13 @@ class LocalPipelineRunner:
             # an adapter.  SQLite history is operational metadata, so retain
             # the exception class but never persist its arbitrary message.
             safe_error = f"{type(exc).__name__}: scheduled pipeline failed"
-            run = run.model_copy(update={"status": RunStatus.FAILED, "finished_at": datetime.now(timezone.utc), "error": safe_error})
+            finished = datetime.now(timezone.utc)
+            run = run.model_copy(update={"status": RunStatus.FAILED, "finished_at": finished, "error": safe_error, "duration_seconds": max(0.0, (finished - started).total_seconds())})
             if schedule.notify_on_failure:
                 run = run.model_copy(update={"notification_sent": bool(self.notifier.notify_failure(schedule, run))})
             self.store.update_run(run)
+            self.store.record_audit(AuditEvent(action="run_failed", project_id=schedule.project_id, run_id=run.id, details={"failure_class": type(exc).__name__}))
+            self.logger.emit("run_failed", level="ERROR", project_id=schedule.project_id, run_id=run.id, details={"failure_class": type(exc).__name__})
             return self.store.get_run(run.id)
 
     def _retain_successful_sets(self, schedule: ScheduleDefinition) -> None:

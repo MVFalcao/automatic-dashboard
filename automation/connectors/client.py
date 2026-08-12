@@ -64,32 +64,9 @@ def _newest(values: list[Any]) -> Any:
 
 
 def _drift(expected: ApiInspection, actual: ApiInspection) -> list[SchemaDriftEvent]:
-    old = {field.path: field for field in expected.fields}
-    new = {field.path: field for field in actual.fields}
-    events: list[SchemaDriftEvent] = []
-    for path in sorted(new.keys() - old.keys()):
-        events.append(SchemaDriftEvent(
-            path=path,
-            kind="added_field",
-            classification=DriftClass.REVIEW_REQUIRED,
-            detail=f"The API added field {path}; review its mapping before using it.",
-        ))
-    for path in sorted(old.keys() - new.keys()):
-        events.append(SchemaDriftEvent(
-            path=path,
-            kind="removed_field",
-            classification=DriftClass.BLOCKING,
-            detail=f"The approved API field {path} is missing from the response.",
-        ))
-    for path in sorted(new.keys() & old.keys()):
-        if old[path].type != new[path].type:
-            events.append(SchemaDriftEvent(
-                path=path,
-                kind="type_changed",
-                classification=DriftClass.BLOCKING,
-                detail=f"Field {path} changed from {old[path].type} to {new[path].type}.",
-            ))
-    return events
+    from automation.drift.classifier import classify_schema_drift
+
+    return classify_schema_drift(expected, actual)
 
 
 class ApiClient:
