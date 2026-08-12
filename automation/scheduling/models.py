@@ -119,6 +119,11 @@ class RunRecord(StrictModel):
     artifact_set_id: str | None = None
     error: str | None = None
     notification_sent: bool = False
+    duration_seconds: float | None = Field(default=None, ge=0)
+    freshness_at: datetime | None = None
+    token_input: int = Field(default=0, ge=0)
+    token_output: int = Field(default=0, ge=0)
+    provider: str | None = Field(default=None, max_length=80)
 
 
 class ArtifactRecord(StrictModel):

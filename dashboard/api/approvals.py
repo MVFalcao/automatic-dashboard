@@ -10,6 +10,7 @@ from automation.approval.models import (
     SectionDecisionRequest,
 )
 from automation.approval.service import approval_store
+from automation.observability.models import AuditEvent
 
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
@@ -29,6 +30,15 @@ def get_approval(approval_id: UUID) -> ApprovalPackage:
         return approval_store.get(approval_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Approval package not found") from exc
+
+
+@router.get("/{approval_id}/audit", response_model=list[AuditEvent])
+def approval_audit(approval_id: UUID) -> list[AuditEvent]:
+    try:
+        approval_store.get(approval_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Approval package not found") from exc
+    return approval_store.audit_history(approval_id=approval_id)
 
 
 @router.post("/{approval_id}/sections/{section_id}", response_model=ApprovalPackage)

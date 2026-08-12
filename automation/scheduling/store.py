@@ -10,6 +10,7 @@ from threading import RLock
 from typing import Iterable
 
 from automation.scheduling.models import ArtifactRecord, RunRecord, RunStatus, ScheduleDefinition
+from automation.observability.models import AuditEvent
 
 
 def _utc_now() -> datetime:
@@ -80,7 +81,12 @@ class ScheduleStore:
                     finished_at TEXT,
                     artifact_set_id TEXT,
                     error TEXT,
-                    notification_sent INTEGER NOT NULL DEFAULT 0
+                    notification_sent INTEGER NOT NULL DEFAULT 0,
+                    duration_seconds REAL,
+                    freshness_at TEXT,
+                    token_input INTEGER NOT NULL DEFAULT 0,
+                    token_output INTEGER NOT NULL DEFAULT 0,
+                    provider TEXT
                 );
                 CREATE INDEX IF NOT EXISTS runs_schedule_idx ON runs(schedule_id, started_at DESC);
                 CREATE TABLE IF NOT EXISTS artifacts (
@@ -94,8 +100,24 @@ class ScheduleStore:
                     size_bytes INTEGER NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS artifacts_set_idx ON artifacts(schedule_id, artifact_set_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, action TEXT NOT NULL,
+                    actor TEXT NOT NULL, project_id TEXT, run_id TEXT, details_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS audit_events_timestamp_idx ON audit_events(timestamp DESC);
                 """
             )
+            # Additive migration for databases created before observability.
+            columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(runs)").fetchall()}
+            for name, definition in {
+                "duration_seconds": "REAL",
+                "freshness_at": "TEXT",
+                "token_input": "INTEGER NOT NULL DEFAULT 0",
+                "token_output": "INTEGER NOT NULL DEFAULT 0",
+                "provider": "TEXT",
+            }.items():
+                if name not in columns:
+                    self._connection.execute(f"ALTER TABLE runs ADD COLUMN {name} {definition}")
 
     @staticmethod
     def _schedule_values(schedule: ScheduleDefinition) -> tuple:
@@ -191,10 +213,12 @@ class ScheduleStore:
         with self._lock, self._connection:
             self._connection.execute(
                 """INSERT OR IGNORE INTO runs (id, schedule_id, idempotency_key, status, scheduled_for,
-                started_at, finished_at, artifact_set_id, error, notification_sent) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                started_at, finished_at, artifact_set_id, error, notification_sent, duration_seconds,
+                freshness_at, token_input, token_output, provider) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (run.id, run.schedule_id, run.idempotency_key, run.status.value, _timestamp(run.scheduled_for),
                  _timestamp(run.started_at), _timestamp(run.finished_at) if run.finished_at else None,
-                 run.artifact_set_id, run.error, int(run.notification_sent)),
+                 run.artifact_set_id, run.error, int(run.notification_sent), run.duration_seconds,
+                 _timestamp(run.freshness_at) if run.freshness_at else None, run.token_input, run.token_output, run.provider),
             )
             row = self._connection.execute("SELECT * FROM runs WHERE idempotency_key = ?", (run.idempotency_key,)).fetchone()
         assert row is not None
@@ -203,9 +227,12 @@ class ScheduleStore:
     def update_run(self, run: RunRecord) -> RunRecord:
         with self._lock, self._connection:
             self._connection.execute(
-                """UPDATE runs SET status=?, finished_at=?, artifact_set_id=?, error=?, notification_sent=? WHERE id=?""",
+                """UPDATE runs SET status=?, finished_at=?, artifact_set_id=?, error=?, notification_sent=?,
+                duration_seconds=?, freshness_at=?, token_input=?, token_output=?, provider=? WHERE id=?""",
                 (run.status.value, _timestamp(run.finished_at) if run.finished_at else None, run.artifact_set_id,
-                 run.error, int(run.notification_sent), run.id),
+                 run.error, int(run.notification_sent), run.duration_seconds,
+                 _timestamp(run.freshness_at) if run.freshness_at else None, run.token_input, run.token_output,
+                 run.provider, run.id),
             )
         return self.get_run(run.id)
 
@@ -224,6 +251,41 @@ class ScheduleStore:
             else:
                 rows = self._connection.execute("SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
         return [self._run_from_row(row) for row in rows]
+
+    def record_audit(self, event: AuditEvent) -> AuditEvent:
+        """Append a validated, redacted approval or run event."""
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT INTO audit_events (id,timestamp,action,actor,project_id,run_id,details_json) VALUES (?,?,?,?,?,?,?)",
+                (event.id, _timestamp(event.timestamp), event.action, event.actor, event.project_id, event.run_id,
+                 json.dumps(event.details, ensure_ascii=False, separators=(",", ":"))),
+            )
+        return event
+
+    def list_audit(self, *, project_id: str | None = None, run_id: str | None = None, limit: int = 100) -> list[AuditEvent]:
+        limit = max(1, min(limit, 1000))
+        with self._lock:
+            clauses: list[str] = []
+            values: list[str | int] = []
+            if project_id:
+                clauses.append("project_id=?")
+                values.append(project_id)
+            if run_id:
+                clauses.append("run_id=?")
+                values.append(run_id)
+            where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+            rows = self._connection.execute(
+                f"SELECT * FROM audit_events{where} ORDER BY timestamp DESC LIMIT ?",
+                (*values, limit),
+            ).fetchall()
+        return [AuditEvent(
+            id=row["id"], timestamp=row["timestamp"], action=row["action"], actor=row["actor"],
+            project_id=row["project_id"], run_id=row["run_id"], details=json.loads(row["details_json"]),
+        ) for row in rows]
+
+    # Explicit aliases make the audit boundary discoverable to API callers.
+    record_audit_event = record_audit
+    list_audit_events = list_audit
 
     def add_artifacts(self, artifacts: Iterable[ArtifactRecord]) -> None:
         values = [
@@ -277,6 +339,8 @@ class ScheduleStore:
             id=row["id"], schedule_id=row["schedule_id"], idempotency_key=row["idempotency_key"], status=row["status"],
             scheduled_for=datetime.fromisoformat(row["scheduled_for"]), started_at=datetime.fromisoformat(row["started_at"]),
             finished_at=_datetime(row["finished_at"]), artifact_set_id=row["artifact_set_id"], error=row["error"], notification_sent=bool(row["notification_sent"]),
+            duration_seconds=row["duration_seconds"], freshness_at=_datetime(row["freshness_at"]),
+            token_input=row["token_input"], token_output=row["token_output"], provider=row["provider"],
         )
 
     @staticmethod
