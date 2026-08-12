@@ -33,6 +33,17 @@ class ApiSyncEndpointRequest(BaseModel):
     request: ApiSyncRequest
     expected_inspection: ApiInspection | None = None
 
+    @model_validator(mode="after")
+    def require_approved_inspection(self) -> "ApiSyncEndpointRequest":
+        if self.expected_inspection is None:
+            raise ValueError("A persisted inspection is required before synchronization")
+        if self.expected_inspection.source_id != self.request.source.id:
+            raise ValueError("Inspection source does not match the configured source")
+        paths = {field.path for field in self.expected_inspection.fields}
+        if set(self.request.approved_mappings) - paths:
+            raise ValueError("Approved mappings must come from the inspected source")
+        return self
+
 
 router = APIRouter(prefix="/api/api-sources", tags=["api-sources"])
 _credential_store = MemoryCredentialStore()

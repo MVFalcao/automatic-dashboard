@@ -85,6 +85,25 @@ def apply_import(
         raise ValueError("Multiple source columns cannot map to the same target field")
     if approval.update_identifier and approval.update_identifier not in approval.mappings.values():
         raise ValueError("The update identifier must be an approved target field")
+    if approval.permit_persistence:
+        detected = {
+            column: column in {
+                detected_column
+                for source in inspection.sources
+                for detected_column in source.likely_confidential_columns
+            }
+            for column in inspected_columns
+        }
+        if set(approval.field_classifications) != inspected_columns:
+            raise ValueError("Every inspected field requires an explicit confidentiality classification")
+        effective = dict(detected)
+        effective.update(approval.classification_overrides)
+        if set(approval.classification_overrides) - inspected_columns:
+            raise ValueError("Confidentiality overrides must refer to inspected fields")
+        if approval.field_classifications != effective:
+            raise ValueError("Field classifications must match detection or an explicit override")
+        if any(approval.field_classifications[column] for column in inspected_columns):
+            raise ValueError("Confidential imported data cannot be persisted")
 
     raw = [record for path in _files(location) for record in _read_records(path)]
     incoming = _mapped(raw, approval.mappings)

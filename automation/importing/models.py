@@ -60,6 +60,8 @@ class ImportApproval(BaseModel):
     mappings: dict[str, str]
     relationships_confirmed: bool = False
     confidential_columns: list[str] = Field(default_factory=list)
+    field_classifications: dict[str, bool] = Field(default_factory=dict)
+    classification_overrides: dict[str, bool] = Field(default_factory=dict)
     update_identifier: str | None = None
     update_identifier_confirmed: bool = False
     permit_persistence: bool = False
