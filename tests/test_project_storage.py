@@ -9,7 +9,7 @@ def test_capabilities_match_confirmed_first_release() -> None:
 
     assert set(capabilities.languages) == {Language.ENGLISH, Language.PORTUGUESE}
     assert capabilities.local_only is True
-    assert capabilities.scheduled_generation is False
+    assert capabilities.scheduled_generation is True
     assert "csv" in capabilities.population_formats
     assert "pdf" in capabilities.output_formats
 
