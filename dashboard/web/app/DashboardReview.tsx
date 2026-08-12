@@ -51,7 +51,26 @@ export default function DashboardReview({ language, context }: Props) {
   const [order, setOrder] = useState(["summary", "chart", "details"]);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({ summary: "pending", chart: "pending", details: "pending" });
   const [feedback, setFeedback] = useState("");
+  const [runtimeStatus, setRuntimeStatus] = useState("checking");
   const total = useMemo(() => rows.reduce((sum, row) => sum + row.value, 0), []);
+  useEffect(() => {
+    const saved = window.localStorage.getItem("dashboard-review-controls");
+    if (saved) {
+      try {
+        const value = JSON.parse(saved) as { color?: string; kind?: ChartKind; order?: string[]; decisions?: Record<string, Decision> };
+        if (value.color) setColor(value.color);
+        if (value.kind) setKind(value.kind);
+        if (value.order) setOrder(value.order);
+        if (value.decisions) setDecisions(value.decisions);
+      } catch { /* stale local controls are ignored */ }
+    }
+    fetch("/backend/api/hermes/status")
+      .then((response) => setRuntimeStatus(response.ok ? "connected" : "unavailable"))
+      .catch(() => setRuntimeStatus("unavailable"));
+  }, []);
+  useEffect(() => {
+    window.localStorage.setItem("dashboard-review-controls", JSON.stringify({ color, kind, order, decisions }));
+  }, [color, kind, order, decisions]);
   const move = (id: string, offset: number) => setOrder((current) => {
     const source = current.indexOf(id); const target = source + offset;
     if (target < 0 || target >= current.length) return current;
@@ -67,7 +86,7 @@ export default function DashboardReview({ language, context }: Props) {
   };
 
   return <main className="review-shell" style={{ "--accent": color } as React.CSSProperties}>
-    <aside className="review-sidebar"><p className="eyebrow">Dashboard Agent</p><h1>{t.title}</h1><p>{t.notice}</p><dl>{Object.entries(context).slice(0, 3).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>)}</dl><label>{t.color}<input type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label><label>{t.chart}<select value={kind} onChange={(event) => setKind(event.target.value as ChartKind)}><option value="bar">Bar</option><option value="line">Line</option><option value="pie">Donut</option></select></label><label>{t.revision}<textarea rows={4} value={feedback} onChange={(event) => setFeedback(event.target.value)} /></label><button className="primary" disabled={!feedback.trim()} onClick={() => { setFeedback(""); setDecisions((current) => Object.fromEntries(Object.keys(current).map((key) => [key, current[key] === "revision" ? "pending" : current[key]])) as Record<string, Decision>); }}>{t.apply}</button></aside>
+    <aside className="review-sidebar"><p className="eyebrow">Dashboard Agent</p><h1>{t.title}</h1><p>{t.notice}</p><p className="runtime-status">Runtime: {runtimeStatus}</p><dl>{Object.entries(context).slice(0, 3).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>)}</dl><label>{t.color}<input type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label><label>{t.chart}<select value={kind} onChange={(event) => setKind(event.target.value as ChartKind)}><option value="bar">Bar</option><option value="line">Line</option><option value="pie">Donut</option></select></label><label>{t.revision}<textarea rows={4} value={feedback} onChange={(event) => setFeedback(event.target.value)} /></label><button className="primary" disabled={!feedback.trim()} onClick={() => { setFeedback(""); setDecisions((current) => Object.fromEntries(Object.keys(current).map((key) => [key, current[key] === "revision" ? "pending" : current[key]])) as Record<string, Decision>); }}>{t.apply}</button></aside>
     <div className="dashboard-preview"><div className="synthetic-banner">{t.notice}</div>{order.map((id) => sections[id])}</div>
   </main>;
 }

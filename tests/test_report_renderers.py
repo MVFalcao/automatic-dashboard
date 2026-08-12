@@ -4,6 +4,8 @@ import pytest
 
 from automation.reports import ArtifactStore, ReportDocument, ReportRequest
 from automation.reports.renderers import excel_metric_values, render_excel, render_html, render_pdf
+from openpyxl import load_workbook
+from io import BytesIO
 from automation.specification.models import OutputKind
 from test_dashboard_spec import valid_spec
 
@@ -26,6 +28,16 @@ def test_excel_and_html_have_metric_terminology_and_section_parity() -> None:
     assert 'data-metric="total">30<' in html
     assert 'data-section="summary">Summary<' in html
     assert "Synthetic data" in html
+
+
+def test_excel_escapes_formula_like_text() -> None:
+    report = document().model_copy(update={"records": [{"category": "=HYPERLINK(\"https://attacker\")", "amount": 10}]})
+    workbook = load_workbook(BytesIO(render_excel(report)), data_only=False)
+    try:
+        assert workbook["Data"]["A2"].value == "'=HYPERLINK(\"https://attacker\")"
+        assert workbook["Data"]["A2"].data_type == "s"
+    finally:
+        workbook.close()
 
 
 def test_pdf_is_printed_from_shared_html() -> None:

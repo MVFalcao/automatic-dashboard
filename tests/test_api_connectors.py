@@ -33,6 +33,17 @@ def client_for(handler):
     return ApiClient(store, transport=httpx.MockTransport(handler)), store
 
 
+def approved_request(api_source: ApiSourceConfig, **kwargs) -> ApiSyncRequest:
+    values = {
+        "source": api_source,
+        "approved_mappings": {"id": "id", "amount": "amount"},
+        "approval_confirmed": True,
+        "inspection_version": "inspection-v1",
+    }
+    values.update(kwargs)
+    return ApiSyncRequest(**values)
+
+
 def test_inspection_infers_nested_fields_and_plain_language_mappings() -> None:
     client = ApiClient()
     inspection = client.inspect(
@@ -79,7 +90,7 @@ def test_page_pagination_and_deterministic_flattening() -> None:
         return httpx.Response(200, json=body, headers={"content-type": "application/json"})
 
     client, _ = client_for(handler)
-    result = client.sync(ApiSyncRequest(source=source(pagination=PaginationConfig(kind=PaginationKind.PAGE, page_size=1)), approval_confirmed=True))
+    result = client.sync(approved_request(source(pagination=PaginationConfig(kind=PaginationKind.PAGE, page_size=1))))
     assert result.records == [{"amount": 10, "id": 1}, {"amount": 20, "id": 2}]
     assert result.pages_fetched == 3
     assert len(result.provenance) == 2
@@ -92,8 +103,21 @@ def test_cursor_and_link_pagination() -> None:
         return httpx.Response(200, json={"items": [{"id": 1}], "next_cursor": "abc"}, headers={"content-type": "application/json"})
 
     client, _ = client_for(cursor_handler)
-    result = client.sync(ApiSyncRequest(source=source(pagination=PaginationConfig(kind=PaginationKind.CURSOR))))
+    result = client.sync(approved_request(source(pagination=PaginationConfig(kind=PaginationKind.CURSOR))))
     assert [record["id"] for record in result.records] == [1, 2]
+
+
+def test_cross_origin_pagination_link_is_rejected_before_request() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"items": [{"id": 1}], "links": {"next": "https://attacker.example/steal"}}, headers={"content-type": "application/json"})
+
+    client, _ = client_for(handler)
+    with pytest.raises(ApiRequestError, match="origin"):
+        client.sync(approved_request(source(pagination=PaginationConfig(kind=PaginationKind.LINK, next_link_path="links.next"))))
+    assert calls == ["https://api.example.test/v1/records"]
 
     def link_handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/next"):
@@ -103,7 +127,7 @@ def test_cursor_and_link_pagination() -> None:
         return httpx.Response(200, json=body, headers={"content-type": "application/json"})
 
     link_client, _ = client_for(link_handler)
-    result = link_client.sync(ApiSyncRequest(source=source(
+    result = link_client.sync(approved_request(source(
         pagination=PaginationConfig(kind=PaginationKind.LINK, next_link_path="links.next")
     )))
     assert [record["id"] for record in result.records] == [1, 2]
@@ -123,7 +147,7 @@ def test_bounded_retry_rate_limit_and_auth_header() -> None:
     client, store = client_for(handler)
     reference = CredentialReference(service="dashboard", account="test")
     store.put(reference, "private-key")
-    result = client.sync(ApiSyncRequest(source=source(
+    result = client.sync(approved_request(source(
         auth_method=ApiAuthMethod.API_KEY,
         credential_reference=reference,
         max_retries=1,
@@ -135,7 +159,7 @@ def test_bounded_retry_rate_limit_and_auth_header() -> None:
 
 def test_incremental_requires_confirmation_and_produces_checkpoint() -> None:
     with pytest.raises(ValueError, match="Incremental"):
-        ApiSyncRequest(source=source(), mode="incremental")
+        ApiSyncRequest(source=source(), mode="incremental", approval_confirmed=True, approved_mappings={"id": "id"}, inspection_version="inspection-v1")
     configured = source(incremental_field="updated_at", incremental_confirmed=True)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -143,8 +167,8 @@ def test_incremental_requires_confirmation_and_produces_checkpoint() -> None:
         return httpx.Response(200, json=[{"id": 1, "updated_at": "2026-01-02T00:00:00Z"}], headers={"content-type": "application/json"})
 
     client, _ = client_for(handler)
-    result = client.sync(ApiSyncRequest(
-        source=configured,
+    result = client.sync(approved_request(
+        configured,
         mode="incremental",
         checkpoint=datetime(2026, 1, 1, tzinfo=timezone.utc),
     ))
@@ -157,7 +181,7 @@ def test_schema_drift_classifies_added_and_blocks_removed_fields() -> None:
     )))
     expected = client.inspect(source(), [{"id": 1, "old": "x"}])
     with pytest.raises(ApiRequestError, match="blocking"):
-        client.sync(ApiSyncRequest(source=source()), expected_inspection=expected)
+        client.sync(approved_request(source()), expected_inspection=expected)
 
 
 def test_local_api_inspection_endpoint_and_sync_requires_approval() -> None:
@@ -172,3 +196,8 @@ def test_local_api_inspection_endpoint_and_sync_requires_approval() -> None:
         "request": {"source": source().model_dump(mode="json"), "approved_mappings": {"id": "id"}},
     })
     assert rejected.status_code == 422
+
+
+def test_api_sync_requires_inspection_version_and_nonempty_approved_mappings() -> None:
+    with pytest.raises(ValueError, match="persisted inspection"):
+        ApiSyncRequest(source=source(), approval_confirmed=True)

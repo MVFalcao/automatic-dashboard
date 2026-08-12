@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from uuid import uuid4
@@ -19,10 +20,11 @@ SUFFIX = {OutputKind.WEB: ".html", OutputKind.EXCEL: ".xlsx", OutputKind.PDF: ".
 class ArtifactStore:
     def __init__(self, temporary_directory: Path | None = None) -> None:
         self.root = temporary_directory or Path(tempfile.mkdtemp(prefix="dashboard-reports-"))
-        self._paths: dict[str, Path] = {}
+        self._paths: dict[str, tuple[Path, datetime]] = {}
         self._lock = RLock()
 
     def generate(self, request: ReportRequest) -> list[ReportArtifact]:
+        self.cleanup_expired()
         if request.confidential and not request.confidential_lifecycle_approved:
             raise ValueError("Confidential report lifecycle approval is required")
         renderers = {OutputKind.WEB: lambda value: render_html(value).encode(), OutputKind.EXCEL: render_excel, OutputKind.PDF: render_pdf}
@@ -33,18 +35,29 @@ class ArtifactStore:
             path = self.root / f"{identifier}{SUFFIX[output]}"
             path.write_bytes(content)
             with self._lock:
-                self._paths[identifier] = path
+                self._paths[identifier] = (path, datetime.now(timezone.utc) + timedelta(minutes=10))
             artifacts.append(ReportArtifact(id=identifier, output=output, filename=f"dashboard-report{SUFFIX[output]}", media_type=MEDIA[output], confidential=request.confidential, one_time_download=request.confidential, size_bytes=len(content)))
         return artifacts
 
     def consume(self, identifier: str) -> tuple[bytes, Path]:
         with self._lock:
-            path = self._paths.pop(identifier, None)
-        if path is None or not path.exists():
+            entry = self._paths.pop(identifier, None)
+        path = entry[0] if entry else None
+        if path is None or not path.exists() or entry[1] <= datetime.now(timezone.utc):
+            if path is not None:
+                path.unlink(missing_ok=True)
             raise KeyError(identifier)
         content = path.read_bytes()
         path.unlink()
         return content, path
+
+    def cleanup_expired(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            expired = [identifier for identifier, (path, expires) in self._paths.items() if expires <= now]
+            for identifier in expired:
+                path, _ = self._paths.pop(identifier)
+                path.unlink(missing_ok=True)
 
 
 artifact_store = ArtifactStore()

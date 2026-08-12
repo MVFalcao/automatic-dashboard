@@ -11,12 +11,19 @@ from openpyxl.styles import Font, PatternFill
 from playwright.sync_api import sync_playwright
 
 from automation.reports.models import ReportDocument
+from automation.reports.localization import format_value
 
 
 SYNTHETIC_NOTICE = {
     "en": "Synthetic data — all values are invented for design review.",
     "pt": "Dados sintéticos — todos os valores são inventados para revisão do design.",
 }
+
+
+def _excel_safe(value: object) -> object:
+    if isinstance(value, str) and value[:1] in {"=", "+", "-", "@"}:
+        return "'" + value
+    return value
 
 
 def _language(document: ReportDocument) -> str:
@@ -45,7 +52,7 @@ def render_excel(document: ReportDocument) -> bytes:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="23543C")
     for record in document.records:
-        details.append([record.get(field.id) for field in document.specification.fields])
+        details.append([_excel_safe(format_value(record.get(field.id), language=language, currency=document.specification.localization.currency)) for field in document.specification.fields])
     details.freeze_panes = "A2"
     details.auto_filter.ref = details.dimensions
     destination = BytesIO()

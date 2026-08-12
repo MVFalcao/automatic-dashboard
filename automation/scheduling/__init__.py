@@ -9,12 +9,14 @@ from automation.scheduling.models import (
     ScheduleFrequency,
 )
 from automation.scheduling.runner import LocalPipelineRunner, PipelineExecution
+from automation.scheduling.service import LocalSchedulerService
 from automation.scheduling.store import ScheduleStore
 
 __all__ = [
     "ArtifactRecord",
     "LocalPipelineRunner",
     "PipelineExecution",
+    "LocalSchedulerService",
     "PipelineArtifact",
     "RunRecord",
     "RunStatus",

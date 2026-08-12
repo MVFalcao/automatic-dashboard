@@ -104,6 +104,22 @@ def test_confidential_import_cannot_be_marked_for_persistence(tmp_path: Path) ->
         apply_import(path, plan, approval)
 
 
+def test_persistence_requires_reviewed_classification_for_every_field(tmp_path: Path) -> None:
+    path = tmp_path / "records.csv"
+    write_csv(path, [["Email", "Amount"], ["one@example.com", "20"]])
+    plan = inspect_data_location(path, schema())
+    approval = ImportApproval(
+        approved=True,
+        mode=ImportMode.REPLACE,
+        mappings={"Email": "email", "Amount": "amount"},
+        field_classifications={"Email": False, "Amount": False},
+        permit_persistence=True,
+    )
+
+    with pytest.raises(ValueError, match="match detection"):
+        apply_import(path, plan, approval)
+
+
 def test_inspection_reports_malformed_csv_rows(tmp_path: Path) -> None:
     path = tmp_path / "records.csv"
     write_csv(path, [["Email", "Amount"], ["one@example.com"]])

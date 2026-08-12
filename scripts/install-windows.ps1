@@ -83,6 +83,8 @@ $start = Join-Path $InstallDir "dashboard-start.ps1"
 @"
 `$ErrorActionPreference = 'Stop'
 `$env:PLAYWRIGHT_BROWSERS_PATH = '$playwright'
+`$env:DASHBOARD_ENFORCE_LOCAL_SECURITY = 'true'
+`$env:DASHBOARD_ALLOWED_ORIGINS = 'http://127.0.0.1:3000'
 `$env:DASHBOARD_LOCAL_AUTH_TOKEN = (& '$venvPython' -c "import secrets; print(secrets.token_urlsafe(32))").Trim()
 `$api = Start-Process -FilePath '$venvPython' -ArgumentList '-m','uvicorn','dashboard.api.main:app','--host','127.0.0.1','--port','8000' -WorkingDirectory '$InstallDir' -PassThru
 try { Push-Location '$InstallDir\dashboard\web'; npm run start -- -H 127.0.0.1 -p 3000 } finally { Pop-Location; Stop-Process -Id `$api.Id -Force -ErrorAction SilentlyContinue }

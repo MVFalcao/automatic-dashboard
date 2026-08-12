@@ -13,6 +13,7 @@ from automation.agent.credentials import (
     NativeOAuthReference,
     NativeOAuthStore,
 )
+from automation.agent.client import HermesClient
 from automation.agent.gateway import GatewayConfig, HermesGateway
 from automation.agent.memory import MemoryEntry, MemoryKind, SafeMemoryStore
 from automation.agent.models import (
@@ -30,6 +31,7 @@ from automation.agent.validation import StructuredResponseValidator
 
 __all__ = [
     "CredentialReference",
+    "HermesClient",
     "CredentialStore",
     "GatewayConfig",
     "HermesGateway",

@@ -1,0 +1,51 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked --extra dev pytest -q
+      - run: uv run --locked python -m compileall -q automation dashboard tests
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.9.0"
+          cache: npm
+          cache-dependency-path: dashboard/web/package-lock.json
+      - working-directory: dashboard/web
+        run: npm ci
+      - working-directory: dashboard/web
+        run: npm run check
+      - working-directory: dashboard/web
+        run: npm run build
+      - working-directory: dashboard/web
+        run: npm audit --omit=dev
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/install-linux.sh scripts/smoke-test-install.sh scripts/uninstall-linux.sh
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.9.0"
+      - shell: pwsh
+        run: ./scripts/smoke-test-install.ps1 -InstallDir "$env:RUNNER_TEMP\dashboard-agent" -SkipBrowser -SkipBuild

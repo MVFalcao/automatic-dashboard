@@ -15,6 +15,7 @@ from automation.scheduling.models import ArtifactRecord, RunRecord, ScheduleDefi
 from automation.observability.models import AuditEvent
 from automation.scheduling.runner import LocalPipelineRunner, PipelineExecutor
 from automation.scheduling.store import ScheduleStore
+from automation.scheduling.service import LocalSchedulerService
 
 
 def _default_database() -> Path:
@@ -26,6 +27,7 @@ def _default_database() -> Path:
 
 schedule_store = ScheduleStore(_default_database())
 schedule_runner = LocalPipelineRunner(schedule_store)
+schedule_service = LocalSchedulerService(schedule_store, schedule_runner)
 
 
 class SchedulePreviewRequest(BaseModel):
@@ -59,6 +61,8 @@ def configure_scheduler(*, executor: PipelineExecutor | None = None, runner: Loc
         schedule_runner = runner
     else:
         schedule_runner = LocalPipelineRunner(schedule_store, executor=executor)
+    global schedule_service
+    schedule_service = LocalSchedulerService(schedule_store, schedule_runner)
 
 
 @router.post("/preview")

@@ -118,13 +118,14 @@ class ApiSyncRequest(StrictModel):
     checkpoint: str | int | float | datetime | None = None
     approved_mappings: dict[str, str] = Field(default_factory=dict)
     approval_confirmed: bool = False
+    inspection_version: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def validate_incremental(self) -> "ApiSyncRequest":
         if self.mode == "incremental" and not self.source.incremental_confirmed:
             raise ValueError("Incremental refresh requires confirmation of a cursor or updated-time field")
-        if self.approved_mappings and not self.approval_confirmed:
-            raise ValueError("Field mappings must be approved before synchronization")
+        if not self.approval_confirmed or not self.approved_mappings or not self.inspection_version:
+            raise ValueError("Synchronization requires a persisted inspection, approved mappings, and approval")
         return self
 
 
@@ -154,4 +155,3 @@ class ApiSyncResult(StrictModel):
     schema_drift: list[SchemaDriftEvent] = Field(default_factory=list)
     complete: bool = True
     warnings: list[str] = Field(default_factory=list)
-
