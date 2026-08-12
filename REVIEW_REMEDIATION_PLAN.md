@@ -45,12 +45,17 @@ fallback, and no confidential persistence.
 
 ## Execution rules
 
-- One branch, commit, and draft PR per milestone; merge before the next branch.
-- Run the full relevant suite before publishing each PR.
+- Keep each milestone as a separate logical commit in the review PR when the
+  user requests a single-PR remediation pass.
+- Run the full relevant suite before publishing each commit group.
 - Do not activate external delivery or scheduling without explicit approval.
 - Re-run an independent security/release review after R8.
 
 ## Current execution
 
-R1 is implemented in PR #19. R2–R8 are being added to the same PR as separate
-commits at the user's request; the final release gate remains mandatory.
+R1–R8 implementation commits are present in PR #19 at the user's request.
+The implementation pass is not a release certification: the final release gate
+remains mandatory, including full browser E2E wiring, production Hermes
+gateway/provider persistence, real scheduled pipeline execution, complete
+renderer parity, self-contained runtime provisioning, and clean-machine
+installer proof.
