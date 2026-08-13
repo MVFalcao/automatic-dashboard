@@ -85,6 +85,8 @@ def list_schedules(project_id: str | None = None) -> list[ScheduleDefinition]:
 
 @router.post("", response_model=ScheduleDefinition, status_code=201)
 def create_schedule(payload: ScheduleDefinition) -> ScheduleDefinition:
+    if payload.enabled and schedule_service.jobs_client is None:
+        raise HTTPException(status_code=503, detail="Hermes scheduling is not ready; the schedule was not activated")
     try:
         return schedule_store.create_schedule(payload)
     except ValueError as exc:
@@ -103,6 +105,8 @@ def get_schedule(schedule_id: str) -> ScheduleDefinition:
 def update_schedule(schedule_id: str, payload: ScheduleDefinition) -> ScheduleDefinition:
     if payload.id != schedule_id:
         raise HTTPException(status_code=400, detail="Schedule id in the URL must match the definition")
+    if payload.enabled and schedule_service.jobs_client is None:
+        raise HTTPException(status_code=503, detail="Hermes scheduling is not ready; the schedule was not activated")
     try:
         return schedule_store.update_schedule(payload)
     except KeyError as exc:
@@ -116,7 +120,13 @@ def activate_schedule(schedule_id: str, payload: ActivationRequest) -> ScheduleD
     try:
         schedule = schedule_store.get_schedule(schedule_id)
         schedule = schedule.model_copy(update={"enabled": True, "approval_confirmed": True, "approved_by": payload.approved_by})
-        return schedule_store.update_schedule(schedule)
+        if not schedule.can_activate:
+            raise ValueError("Scheduling requires explicit non-confidential approval")
+        if schedule_service.jobs_client is None:
+            raise HTTPException(status_code=503, detail="Hermes scheduling is not ready; the schedule was not activated")
+        updated = schedule_store.update_schedule(schedule)
+        schedule_service.reconcile()
+        return updated
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Schedule not found") from exc
     except ValueError as exc:
@@ -127,7 +137,10 @@ def activate_schedule(schedule_id: str, payload: ActivationRequest) -> ScheduleD
 def deactivate_schedule(schedule_id: str) -> ScheduleDefinition:
     try:
         schedule = schedule_store.get_schedule(schedule_id)
-        return schedule_store.update_schedule(schedule.model_copy(update={"enabled": False}))
+        updated = schedule_store.update_schedule(schedule.model_copy(update={"enabled": False}))
+        if schedule_service.jobs_client is not None:
+            schedule_service.reconcile()
+        return updated
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Schedule not found") from exc
 
@@ -136,6 +149,8 @@ def deactivate_schedule(schedule_id: str) -> ScheduleDefinition:
 def delete_schedule(schedule_id: str) -> None:
     try:
         schedule_store.delete_schedule(schedule_id)
+        if schedule_service.jobs_client is not None:
+            schedule_service.reconcile()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Schedule not found") from exc
 

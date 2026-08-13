@@ -10,11 +10,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.12.3"
+        with: { version: "0.12.3" }
       - run: uv sync --locked --extra dev
+      - run: uv run playwright install --with-deps chromium
       - run: uv run --locked --extra dev pytest -q
-      - run: uv run --locked python -m compileall -q automation dashboard tests
+      - run: uv run --locked python -m compileall -q automation dashboard tests scripts
+
+  security-privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { version: "0.12.3" }
+      - run: uv sync --locked --extra dev
+      - run: uv run playwright install --with-deps chromium
+      - name: SSRF, approval, formula, privacy, and persistence regressions
+        run: uv run pytest -q tests/test_api_connectors.py tests/test_server_owned_workflows.py tests/test_import_inspection.py tests/test_privacy_observability.py tests/test_report_renderers.py tests/test_projects.py
+      - name: Python dependency audit
+        run: uvx pip-audit --path "$(uv run python -c 'import site; print(site.getsitepackages()[0])')"
+      - name: Public tree privacy scan
+        run: |
+          ! rg -n --hidden --glob '!.git/**' --glob '!uv.lock' --glob '!dashboard/web/package-lock.json' '(sk-[A-Za-z0-9]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|password\s*[:=]\s*[^$<{])' .
+
+  report-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { version: "0.12.3" }
+      - run: uv sync --locked --extra dev
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -q tests/test_localization.py tests/test_report_renderers.py tests/test_dashboard_render_api.py
+
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -31,21 +58,72 @@ jobs:
       - working-directory: dashboard/web
         run: npm run build
       - working-directory: dashboard/web
-        run: npm audit --omit=dev
-  shell:
+        run: npm audit
+
+  browser-e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { version: "0.12.3" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20.9.0" }
+      - run: uv sync --locked --extra dev
+      - working-directory: dashboard/web
+        run: npm ci
+      - working-directory: dashboard/web
+        run: npx playwright install --with-deps chromium
+      - working-directory: dashboard/web
+        run: npm run e2e
+
+  linux-clean-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { version: "0.12.3" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20.9.0" }
       - run: bash -n scripts/install-linux.sh scripts/smoke-test-install.sh scripts/uninstall-linux.sh
-  windows-smoke:
+      - name: Build portable offline release
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/python-runtime
+        run: |
+          uv sync --locked --extra dev
+          uv python install 3.12
+          PYTHON_EXECUTABLE=$(uv python find --no-project --managed-python 3.12)
+          PYTHON_RUNTIME=$(dirname "$(dirname "$PYTHON_EXECUTABLE")")
+          NODE_RUNTIME=$(dirname "$(dirname "$(command -v node)")")
+          uv run playwright install --with-deps chromium
+          npm --prefix dashboard/web ci
+          npm --prefix dashboard/web run build
+          "$PYTHON_EXECUTABLE" -m venv "$RUNNER_TEMP/hermes-build"
+          "$RUNNER_TEMP/hermes-build/bin/python" -m pip install "hermes-agent==0.13.0"
+          "$PYTHON_EXECUTABLE" scripts/assemble-release.py \
+            --output "$RUNNER_TEMP/dashboard-bundle" \
+            --python-runtime "$PYTHON_RUNTIME" \
+            --node-runtime "$NODE_RUNTIME" \
+            --hermes-runtime "$RUNNER_TEMP/hermes-build" \
+            --playwright-browsers "$PLAYWRIGHT_BROWSERS_PATH"
+      - name: Install with package indexes disabled
+        env:
+          PIP_NO_INDEX: "1"
+        run: bash scripts/install-linux.sh --bundle "$RUNNER_TEMP/dashboard-bundle" --install-dir "$RUNNER_TEMP/dashboard-agent"
+      - run: bash scripts/smoke-test-install.sh --install-dir "$RUNNER_TEMP/dashboard-agent"
+      - run: bash scripts/uninstall-linux.sh --install-dir "$RUNNER_TEMP/dashboard-agent" --yes
+
+  windows-clean-install:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+        with: { python-version: "3.12" }
       - uses: actions/setup-node@v4
-        with:
-          node-version: "20.9.0"
+        with: { node-version: "20.9.0" }
       - shell: pwsh
-        run: ./scripts/smoke-test-install.ps1 -InstallDir "$env:RUNNER_TEMP\dashboard-agent" -SkipBrowser -SkipBuild
+        run: ./scripts/install-windows.ps1 -InstallDir "$env:RUNNER_TEMP\dashboard-agent"
+      - shell: pwsh
+        run: ./scripts/smoke-test-install.ps1 -InstallDir "$env:RUNNER_TEMP\dashboard-agent"
+      - shell: pwsh
+        run: ./scripts/uninstall-windows.ps1 -InstallDir "$env:RUNNER_TEMP\dashboard-agent" -ConfirmUninstall

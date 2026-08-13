@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -137,6 +138,20 @@ class OutputSpec(StrictModel):
     pdf_page_size: str = "A4"
 
 
+class StyleSpec(StrictModel):
+    palette: list[str] = Field(default_factory=lambda: ["#23543C"])
+    font_family: str = Field(default="Arial", min_length=1, max_length=120)
+    border_color: str = Field(default="#D6DDD8", pattern=r"^#[0-9A-Fa-f]{6}$")
+    spacing: int = Field(default=10, ge=0, le=80)
+
+    @field_validator("palette")
+    @classmethod
+    def valid_palette(cls, value: list[str]) -> list[str]:
+        if not value or len(value) > 12 or any(not re.fullmatch(r"#[0-9A-Fa-f]{6}", item) for item in value):
+            raise ValueError("Style palette requires one to twelve hex colors")
+        return value
+
+
 class ApprovalVersion(StrictModel):
     version: int = Field(ge=1)
     approved_at: datetime
@@ -163,6 +178,7 @@ class DashboardSpec(StrictModel):
     localization: LocalizationSpec
     privacy: PrivacyPolicy = Field(default_factory=PrivacyPolicy)
     outputs: OutputSpec
+    style: StyleSpec = Field(default_factory=StyleSpec)
 
     @model_validator(mode="after")
     def validate_references_and_approvals(self) -> "DashboardSpec":

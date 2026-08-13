@@ -32,6 +32,8 @@ type ReferenceInspection = {
   };
 };
 
+type ProjectEntry = { id: string; name: string; project_directory: string };
+
 const copy = {
   en: {
     eyebrow: "Local dashboard workspace",
@@ -51,6 +53,7 @@ const copy = {
     sections: "Proposed sections",
     approval: "Every proposal requires your approval before it can be used.",
     error: "The request could not be completed. Please try again.",
+    nonConfidential: "This answer is non-confidential and may be saved for restart",
   },
   pt: {
     eyebrow: "Área de trabalho local",
@@ -70,6 +73,7 @@ const copy = {
     sections: "Seções propostas",
     approval: "Toda proposta exige sua aprovação antes de ser utilizada.",
     error: "Não foi possível concluir a solicitação. Tente novamente.",
+    nonConfidential: "Esta resposta não é confidencial e pode ser salva para reinício",
   },
 };
 
@@ -77,6 +81,7 @@ export default function SetupPage() {
   const [language, setLanguage] = useState<Language>("en");
   const [session, setSession] = useState<IntakeResponse | null>(null);
   const [answer, setAnswer] = useState("");
+  const [answerNonConfidential, setAnswerNonConfidential] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [confidential, setConfidential] = useState(false);
   const [permitExtraction, setPermitExtraction] = useState(false);
@@ -84,10 +89,16 @@ export default function SetupPage() {
   const [inspection, setInspection] = useState<ReferenceInspection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const text = useMemo(() => copy[language], [language]);
 
   useEffect(() => {
     if (navigator.language.toLowerCase().startsWith("pt")) setLanguage("pt");
+    fetch("/backend/api/projects", { cache: "no-store" }).then((response) => response.ok ? response.json() : []).then(setProjects).catch(() => setProjects([]));
+    const identifier = new URLSearchParams(window.location.search).get("intake");
+    if (identifier) fetch(`/backend/api/intake/${identifier}`, { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error(); const restored = await response.json() as IntakeResponse; setSession(restored); setLanguage(restored.language);
+    }).catch(() => setError(copy[language].error));
   }, []);
 
   const start = async (): Promise<IntakeResponse> => {
@@ -97,7 +108,9 @@ export default function SetupPage() {
       body: JSON.stringify({ language }),
     });
     if (!response.ok) throw new Error("Unable to start intake");
-    return response.json();
+    const created = await response.json() as IntakeResponse;
+    window.history.replaceState(null, "", `?intake=${created.session_id}`);
+    return created;
   };
 
   const inspectFile = async () => {
@@ -123,13 +136,14 @@ export default function SetupPage() {
       const response = await fetch(`/backend/api/intake/${active.session_id}/answers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: active.step, answer: answer.trim() }),
+        body: JSON.stringify({ step: active.step, answer: answer.trim(), persist_non_confidential: answerNonConfidential }),
       });
       if (!response.ok) throw new Error("Unable to save answer");
       const next: IntakeResponse = await response.json();
       setSession(next);
       setLanguage(next.language);
       setAnswer("");
+      setAnswerNonConfidential(false);
       setFile(null);
       setConfidential(false);
       setPermitExtraction(false);
@@ -148,7 +162,7 @@ export default function SetupPage() {
   const isReferenceStep = session?.step === "reference_sample";
 
   if (session?.step === "complete") {
-    return <DashboardReview language={language} context={session.confirmed_context} />;
+    return <DashboardReview language={language} sessionId={session.session_id} context={session.confirmed_context} />;
   }
 
   return (
@@ -161,12 +175,14 @@ export default function SetupPage() {
           </div>
         )}
         <p className="eyebrow">{text.eyebrow}</p>
+        {!session && projects.length > 0 && <nav aria-label="Projects"><p>{language === "pt" ? "Projetos salvos" : "Saved projects"}</p><ul>{projects.map((project) => <li key={project.id}>{project.name} · <code>{project.project_directory}</code></li>)}</ul></nav>}
         {
           <form onSubmit={submit}>
             <h1 id="setup-title">{question}</h1>
             <p className="intro">{text.intro}</p>
             <label htmlFor="answer" className="sr-only">{question}</label>
             <textarea id="answer" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={text.placeholder} rows={5} />
+            <label><input type="checkbox" checked={answerNonConfidential} onChange={(event) => setAnswerNonConfidential(event.target.checked)} /> {text.nonConfidential}</label>
             {isReferenceStep && (
               <fieldset className="upload-box">
                 <legend>{text.upload}</legend>

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+import json
+import os
+import tempfile
+from pathlib import Path
 from threading import RLock
 from uuid import UUID, uuid4
 
@@ -61,6 +65,7 @@ class IntakeAnswerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     step: IntakeStep
     answer: str = Field(min_length=1, max_length=4_000)
+    persist_non_confidential: bool = False
 
 
 class IntakeResponse(BaseModel):
@@ -78,20 +83,80 @@ class IntakeSession:
     language: Language
     step: IntakeStep = IntakeStep.GOAL
     confirmed_context: dict[str, str] = field(default_factory=dict)
+    persisted_context: dict[str, str] = field(default_factory=dict)
 
 
 class IntakeStore:
-    """Process-local state that intentionally stores answers, not conversation text."""
+    """Restart-safe compact answers, never full conversation transcripts."""
 
-    def __init__(self) -> None:
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or Path(os.environ.get("DASHBOARD_INTAKE_STATE", Path(tempfile.gettempdir()) / "universal-dashboard-agent" / "intake.json"))
         self._sessions: dict[UUID, IntakeSession] = {}
         self._lock = RLock()
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            for item in payload.get("sessions", []):
+                session = IntakeSession(
+                    session_id=UUID(item["session_id"]), language=Language(item["language"]),
+                    step=IntakeStep(item["step"]), confirmed_context=dict(item.get("confirmed_context", {})),
+                    persisted_context=dict(item.get("confirmed_context", {})),
+                )
+                self._sessions[session.session_id] = session
+        except (OSError, ValueError, KeyError, TypeError):
+            self._sessions = {}
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"schema_version": 1, "sessions": [
+            {"session_id": str(item.session_id), "language": item.language.value, "step": item.step.value, "confirmed_context": item.persisted_context}
+            for item in self._sessions.values()
+        ]}
+        fd, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".intake-", text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     def start(self, language: Language) -> IntakeResponse:
         session = IntakeSession(session_id=uuid4(), language=language)
         with self._lock:
             self._sessions[session.session_id] = session
+            self._save()
         return self._response(session)
+
+    def get(self, session_id: UUID) -> IntakeResponse:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(session_id)
+            return self._response(session)
+
+    def set_resource(self, session_id: UUID, key: str, value: str) -> None:
+        if not key.startswith("_"):
+            raise ValueError("Internal intake resource keys must start with an underscore")
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(session_id)
+            session.confirmed_context[key] = value
+            session.persisted_context[key] = value
+            self._save()
+
+    def get_resource(self, session_id: UUID, key: str) -> str | None:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(session_id)
+            return session.confirmed_context.get(key)
 
     def answer(self, session_id: UUID, payload: IntakeAnswerRequest) -> IntakeResponse:
         with self._lock:
@@ -102,17 +167,21 @@ class IntakeStore:
                 raise ValueError(f"Expected answer for {session.step.value}")
 
             session.confirmed_context[payload.step.value] = payload.answer.strip()
+            if payload.persist_non_confidential:
+                session.persisted_context[payload.step.value] = payload.answer.strip()
             current_index = QUESTION_ORDER.index(session.step)
             if current_index + 1 == len(QUESTION_ORDER):
                 session.step = IntakeStep.COMPLETE
             else:
                 session.step = QUESTION_ORDER[current_index + 1]
+            self._save()
             return self._response(session)
 
     def discard(self, session_id: UUID) -> None:
         with self._lock:
             if self._sessions.pop(session_id, None) is None:
                 raise KeyError(session_id)
+            self._save()
 
     @staticmethod
     def _response(session: IntakeSession) -> IntakeResponse:
@@ -124,7 +193,7 @@ class IntakeStore:
             language=session.language,
             step=session.step,
             question=question,
-            confirmed_context=dict(session.confirmed_context),
+            confirmed_context={key: value for key, value in session.confirmed_context.items() if not key.startswith("_")},
         )
 
 

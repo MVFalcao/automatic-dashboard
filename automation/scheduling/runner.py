@@ -31,6 +31,10 @@ class PipelineExecution:
     token_input: int = 0
     token_output: int = 0
     provider: str | None = None
+    pending_checkpoint_source_id: str | None = None
+    pending_checkpoint: str | int | float | None = None
+    project_id: str | None = None
+    project_directory: Path | None = None
 
 
 class NotificationSink(Protocol):
@@ -108,6 +112,7 @@ class LocalPipelineRunner:
         written: list[Path] = []
         staged: list[tuple[Path, Path]] = []
         backups: list[tuple[Path, Path]] = []
+        previous_project = None
         try:
             if self.executor is None:
                 raise RuntimeError("No local pipeline executor is configured")
@@ -151,6 +156,7 @@ class LocalPipelineRunner:
                 temporary.replace(target)
                 written.append(target)
             self.store.add_artifacts(records)
+            previous_project = self._commit_pending_metadata(execution, artifact_set_id)
             shutil.rmtree(staging, ignore_errors=True)
             finished = datetime.now(timezone.utc)
             run = run.model_copy(update={
@@ -167,6 +173,7 @@ class LocalPipelineRunner:
             self.logger.emit("run_succeeded", project_id=schedule.project_id, run_id=run.id, details={"duration_seconds": run.duration_seconds, "artifact_count": len(records)})
             self._retain_successful_sets(schedule)
             return self.store.get_run(run.id)
+
         except Exception as exc:
             # Remove only files created by this failed run; existing successful
             # report sets are intentionally untouched.
@@ -184,6 +191,10 @@ class LocalPipelineRunner:
                     pass
             if 'staging' in locals():
                 shutil.rmtree(staging, ignore_errors=True)
+            self.store.remove_artifacts_for_run(run.id)
+            if previous_project is not None:
+                from dashboard.api.projects import ProjectRepository
+                ProjectRepository().save(previous_project)
             # Exception text can contain source records (or credentials) from
             # an adapter.  SQLite history is operational metadata, so retain
             # the exception class but never persist its arbitrary message.
@@ -196,6 +207,27 @@ class LocalPipelineRunner:
             self.store.record_audit(AuditEvent(action="run_failed", project_id=schedule.project_id, run_id=run.id, details={"failure_class": type(exc).__name__}))
             self.logger.emit("run_failed", level="ERROR", project_id=schedule.project_id, run_id=run.id, details={"failure_class": type(exc).__name__})
             return self.store.get_run(run.id)
+
+    @staticmethod
+    def _commit_pending_metadata(execution: PipelineExecution, artifact_set_id: str):
+        if execution.pending_checkpoint_source_id is None:
+            return None
+        if execution.project_id is None or execution.project_directory is None:
+            raise RuntimeError("Pending pipeline metadata is missing its project reference")
+        from uuid import UUID
+        from dashboard.api.projects import ProjectRepository
+
+        repository = ProjectRepository()
+        project = repository.load(execution.project_directory)
+        if project.id != UUID(execution.project_id):
+            raise RuntimeError("Pending pipeline metadata belongs to another project")
+        checkpoints = dict(project.checkpoints)
+        checkpoints[execution.pending_checkpoint_source_id] = execution.pending_checkpoint
+        repository.save(project.model_copy(update={
+            "checkpoints": checkpoints,
+            "last_successful_artifact_set_id": artifact_set_id,
+        }))
+        return project
 
     def _retain_successful_sets(self, schedule: ScheduleDefinition) -> None:
         successful = self.store.successful_artifact_sets(schedule.id)

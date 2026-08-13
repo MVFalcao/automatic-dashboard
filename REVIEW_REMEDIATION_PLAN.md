@@ -53,9 +53,19 @@ fallback, and no confidential persistence.
 
 ## Current execution
 
-R1–R8 implementation commits are present in PR #19 at the user's request.
-The implementation pass is not a release certification: the final release gate
-remains mandatory, including full browser E2E wiring, production Hermes
-gateway/provider persistence, real scheduled pipeline execution, complete
-renderer parity, self-contained runtime provisioning, and clean-machine
-installer proof.
+PR #19 was merged, and the post-review R1–R8 completion pass is implemented on
+the `agent/remediation-r1` branch. On 2026-08-12 the local Linux release gates
+passed: the full Python suite, TypeScript check, production web build, npm
+audit, privacy scan, English/Portuguese browser journeys across two API
+restarts, and a checksum-verified offline install containing pinned Python,
+Node, Chromium, application, and Hermes runtimes. CI now repeats the offline
+Linux proof with package indexes disabled and retains a clean Windows install
+job.
+
+This is still a release candidate rather than a release certification. The
+published commit must pass all GitHub Actions, including the real Windows
+runner. An acceptance exercise with user-configured provider credentials and
+an explicitly approved real source/schedule is also required; it was not
+activated during remediation. The final independent review found and fixed an
+unconsumed Hermes subprocess-output risk, with no other open P0/P1 finding in
+the reviewed local diff.

@@ -9,15 +9,17 @@ INSTALL_DIR=${UNIVERSAL_DASHBOARD_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/uni
 SKIP_BROWSER=0
 SKIP_BUILD=0
 NO_COPY=0
+BUNDLE_DIR=
 
 usage() {
   sed -n '2,5p' "$0"
-  printf '\nUsage: %s [--source DIR] [--install-dir DIR] [--skip-browser] [--skip-build] [--no-copy]\n' "$0"
+  printf '\nUsage: %s [--bundle DIR | --source DIR] [--install-dir DIR] [--skip-browser] [--skip-build] [--no-copy]\n' "$0"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source) SOURCE_DIR=$(CDPATH= cd -- "$2" && pwd); shift 2 ;;
+    --bundle) BUNDLE_DIR=$(CDPATH= cd -- "$2" && pwd); shift 2 ;;
     --install-dir) INSTALL_DIR=$(CDPATH= cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2"); shift 2 ;;
     --skip-browser) SKIP_BROWSER=1; shift ;;
     --skip-build) SKIP_BUILD=1; shift ;;
@@ -27,6 +29,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$BUNDLE_DIR" ]]; then
+  [[ -f "$BUNDLE_DIR/manifest.sha256" ]] || { printf 'Release bundle manifest is missing.\n' >&2; exit 1; }
+  (cd "$BUNDLE_DIR" && sha256sum --check --strict --quiet manifest.sha256)
+  SOURCE_DIR=$BUNDLE_DIR/app
+  PYTHON=$BUNDLE_DIR/runtime/python/bin/python3
+  NODE=$BUNDLE_DIR/runtime/node/bin/node
+  export PATH="$BUNDLE_DIR/runtime/node/bin:$PATH"
+fi
 if [[ ! -f "$SOURCE_DIR/pyproject.toml" ]]; then
   printf 'Source directory does not contain pyproject.toml: %s\n' "$SOURCE_DIR" >&2
   exit 1
@@ -42,23 +52,52 @@ command -v "$NODE" >/dev/null 2>&1 || { printf 'Node.js 20.9+ is required; insta
 
 mkdir -p "$INSTALL_DIR"
 if [[ "$NO_COPY" -eq 0 && "$SOURCE_DIR" != "$INSTALL_DIR" ]]; then
-  tar -C "$SOURCE_DIR" --exclude=.git --exclude=.venv --exclude=.hermes-runtime --exclude=.playwright \
-    --exclude=private_source_dashboard.xlsx --exclude=reports --exclude=data -cf - . | tar -C "$INSTALL_DIR" -xf -
+  tar -C "$SOURCE_DIR" --exclude=./.git --exclude=./.venv --exclude=./.hermes-runtime --exclude=./.playwright \
+    --exclude=./private_source_dashboard.xlsx --exclude=./reports --exclude=./data -cf - . | tar -C "$INSTALL_DIR" -xf -
+fi
+if [[ -n "$BUNDLE_DIR" ]]; then
+  mkdir -p "$INSTALL_DIR/runtime"
+  cp -a "$BUNDLE_DIR/runtime/python" "$INSTALL_DIR/runtime/python"
+  cp -a "$BUNDLE_DIR/runtime/node" "$INSTALL_DIR/runtime/node"
+  PYTHON=$INSTALL_DIR/runtime/python/bin/python3
+  NODE=$INSTALL_DIR/runtime/node/bin/node
+  export PATH="$INSTALL_DIR/runtime/node/bin:$PATH"
+else
+  mkdir -p "$INSTALL_DIR/runtime/node/bin"
+  ln -sfn "$(command -v "$NODE")" "$INSTALL_DIR/runtime/node/bin/node"
 fi
 VENV="$INSTALL_DIR/.venv"
 HERMES_ENV="$INSTALL_DIR/.hermes-runtime"
 PLAYWRIGHT_DIR="$INSTALL_DIR/.playwright"
 "$PYTHON" -m venv "$VENV"
-"$VENV/bin/python" -m pip install --upgrade pip
-"$VENV/bin/python" -m pip install --upgrade "$INSTALL_DIR"
-if [[ "$SKIP_BROWSER" -eq 0 ]]; then
+if [[ -n "$BUNDLE_DIR" ]]; then
+  "$VENV/bin/python" -m pip install --no-index --find-links "$BUNDLE_DIR/wheels" universal-dashboard-agent
+else
+  "$VENV/bin/python" -m pip install --upgrade pip
+  "$VENV/bin/python" -m pip install --upgrade "$INSTALL_DIR"
+fi
+if [[ -n "$BUNDLE_DIR" ]]; then
+  mkdir -p "$PLAYWRIGHT_DIR"
+  cp -a "$BUNDLE_DIR/runtime/playwright/." "$PLAYWRIGHT_DIR/"
+elif [[ "$SKIP_BROWSER" -eq 0 ]]; then
   PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_DIR" "$VENV/bin/python" -m playwright install chromium
 fi
-"$PYTHON" -m venv "$HERMES_ENV"
-"$HERMES_ENV/bin/python" -m pip install --upgrade pip
-"$HERMES_ENV/bin/python" -m pip install --upgrade 'hermes-agent==0.13.0'
-if [[ "$SKIP_BUILD" -eq 0 ]]; then
+if [[ -n "$BUNDLE_DIR" ]]; then
+  "$PYTHON" -m venv "$HERMES_ENV"
+  "$HERMES_ENV/bin/python" -m pip install --no-index --find-links "$BUNDLE_DIR/hermes-wheels" 'hermes-agent==0.13.0'
+else
+  "$PYTHON" -m venv "$HERMES_ENV"
+  "$HERMES_ENV/bin/python" -m pip install --upgrade pip
+  "$HERMES_ENV/bin/python" -m pip install --upgrade 'hermes-agent==0.13.0'
+fi
+if [[ -z "$BUNDLE_DIR" && "$SKIP_BUILD" -eq 0 ]]; then
   (cd "$INSTALL_DIR/dashboard/web" && npm ci && npm run build)
+  mkdir -p "$INSTALL_DIR/dashboard/web/.next/standalone/.next/static"
+  cp -a "$INSTALL_DIR/dashboard/web/.next/static/." "$INSTALL_DIR/dashboard/web/.next/standalone/.next/static/"
+  if [[ -d "$INSTALL_DIR/dashboard/web/public" ]]; then
+    mkdir -p "$INSTALL_DIR/dashboard/web/.next/standalone/public"
+    cp -a "$INSTALL_DIR/dashboard/web/public/." "$INSTALL_DIR/dashboard/web/.next/standalone/public/"
+  fi
 fi
 
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/config"
@@ -84,10 +123,16 @@ set -a
 . "$BASE_DIR/config/local.env"
 set +a
 export DASHBOARD_LOCAL_AUTH_TOKEN=$("$BASE_DIR/.venv/bin/python" -c 'import secrets; print(secrets.token_urlsafe(32))')
+export DASHBOARD_HERMES_RUNTIME="$BASE_DIR/.hermes-runtime"
+export DASHBOARD_API_ORIGIN="http://${DASHBOARD_API_HOST:-127.0.0.1}:${DASHBOARD_API_PORT:-8000}"
 cd "$BASE_DIR"
 trap 'kill 0' EXIT INT TERM
 "$BASE_DIR/.venv/bin/python" -m uvicorn dashboard.api.main:app --host "${DASHBOARD_API_HOST:-127.0.0.1}" --port "${DASHBOARD_API_PORT:-8000}" &
-(cd dashboard/web && npm run start -- -H "${DASHBOARD_WEB_HOST:-127.0.0.1}" -p "${DASHBOARD_WEB_PORT:-3000}") &
+if [[ -f "$BASE_DIR/dashboard/web/.next/standalone/server.js" ]]; then
+  (cd dashboard/web && HOSTNAME="${DASHBOARD_WEB_HOST:-127.0.0.1}" PORT="${DASHBOARD_WEB_PORT:-3000}" "$BASE_DIR/runtime/node/bin/node" .next/standalone/server.js) &
+else
+  (cd dashboard/web && npm run start -- -H "${DASHBOARD_WEB_HOST:-127.0.0.1}" -p "${DASHBOARD_WEB_PORT:-3000}") &
+fi
 wait
 EOF
 chmod 700 "$INSTALL_DIR/bin/dashboard-start"

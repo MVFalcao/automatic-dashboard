@@ -430,6 +430,40 @@
       "title": "SectionSpec",
       "type": "object"
     },
+    "StyleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "palette": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Palette",
+          "type": "array"
+        },
+        "font_family": {
+          "default": "Arial",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Font Family",
+          "type": "string"
+        },
+        "border_color": {
+          "default": "#D6DDD8",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Border Color",
+          "type": "string"
+        },
+        "spacing": {
+          "default": 10,
+          "maximum": 80,
+          "minimum": 0,
+          "title": "Spacing",
+          "type": "integer"
+        }
+      },
+      "title": "StyleSpec",
+      "type": "object"
+    },
     "VisualizationKind": {
       "enum": [
         "card",
@@ -600,6 +634,9 @@
     },
     "outputs": {
       "$ref": "#/$defs/OutputSpec"
+    },
+    "style": {
+      "$ref": "#/$defs/StyleSpec"
     }
   },
   "required": [

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Iterable
@@ -105,6 +105,12 @@ class ScheduleStore:
                     actor TEXT NOT NULL, project_id TEXT, run_id TEXT, details_json TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS audit_events_timestamp_idx ON audit_events(timestamp DESC);
+                CREATE TABLE IF NOT EXISTS hermes_bindings (
+                    schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+                    job_id TEXT NOT NULL UNIQUE,
+                    definition_checksum TEXT NOT NULL,
+                    reconciled_at TEXT NOT NULL
+                );
                 """
             )
             # Additive migration for databases created before observability.
@@ -224,6 +230,18 @@ class ScheduleStore:
         assert row is not None
         return self._run_from_row(row), row["id"] == run.id
 
+    def recover_stale_runs(self, *, older_than: timedelta = timedelta(minutes=30)) -> int:
+        """Mark crash-orphaned leases failed before the scheduler resumes."""
+        cutoff = _timestamp(_utc_now() - older_than)
+        finished = _timestamp(_utc_now())
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                """UPDATE runs SET status=?, finished_at=?, error=?
+                WHERE status=? AND started_at<?""",
+                (RunStatus.FAILED.value, finished, "CrashRecovery: stale running lease recovered", RunStatus.RUNNING.value, cutoff),
+            )
+        return cursor.rowcount
+
     def update_run(self, run: RunRecord) -> RunRecord:
         with self._lock, self._connection:
             self._connection.execute(
@@ -298,6 +316,10 @@ class ScheduleStore:
                 values,
             )
 
+    def remove_artifacts_for_run(self, run_id: str) -> None:
+        with self._lock, self._connection:
+            self._connection.execute("DELETE FROM artifacts WHERE run_id=?", (run_id,))
+
     def list_artifacts(self, *, schedule_id: str, artifact_set_id: str | None = None) -> list[ArtifactRecord]:
         with self._lock:
             if artifact_set_id:
@@ -319,6 +341,32 @@ class ScheduleStore:
         with self._lock, self._connection:
             self._connection.execute("DELETE FROM artifacts WHERE schedule_id=? AND artifact_set_id=?", (schedule_id, artifact_set_id))
         return [item.path for item in artifacts]
+
+    def get_binding(self, schedule_id: str) -> tuple[str, str] | None:
+        with self._lock:
+            row = self._connection.execute("SELECT job_id, definition_checksum FROM hermes_bindings WHERE schedule_id=?", (schedule_id,)).fetchone()
+        return (row["job_id"], row["definition_checksum"]) if row else None
+
+    def save_binding(self, schedule_id: str, job_id: str, checksum: str) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                """INSERT INTO hermes_bindings(schedule_id,job_id,definition_checksum,reconciled_at)
+                VALUES(?,?,?,?) ON CONFLICT(schedule_id) DO UPDATE SET
+                job_id=excluded.job_id, definition_checksum=excluded.definition_checksum,
+                reconciled_at=excluded.reconciled_at""",
+                (schedule_id, job_id, checksum, _timestamp(_utc_now())),
+            )
+
+    def remove_binding(self, schedule_id: str) -> tuple[str, str] | None:
+        binding = self.get_binding(schedule_id)
+        with self._lock, self._connection:
+            self._connection.execute("DELETE FROM hermes_bindings WHERE schedule_id=?", (schedule_id,))
+        return binding
+
+    def list_bindings(self) -> dict[str, tuple[str, str]]:
+        with self._lock:
+            rows = self._connection.execute("SELECT schedule_id,job_id,definition_checksum FROM hermes_bindings").fetchall()
+        return {row["schedule_id"]: (row["job_id"], row["definition_checksum"]) for row in rows}
 
     @staticmethod
     def _schedule_from_row(row: sqlite3.Row) -> ScheduleDefinition:

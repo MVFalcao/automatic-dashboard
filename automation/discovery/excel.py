@@ -16,6 +16,7 @@ from automation.discovery.models import (
     FieldType,
     SampleManifest,
     SectionEvidence,
+    StyleEvidence,
 )
 
 
@@ -88,6 +89,13 @@ def analyze_excel(path: Path, *, permit_data_extraction: bool) -> SampleManifest
     workbook = openpyxl.load_workbook(path, data_only=False, keep_links=False)
     sections: list[SectionEvidence] = []
     warnings: list[str] = []
+    colors: Counter[str] = Counter()
+    fonts: Counter[str] = Counter()
+    sizes: Counter[float] = Counter()
+    borders: Counter[str] = Counter()
+    row_heights: Counter[float] = Counter()
+    column_widths: Counter[float] = Counter()
+    chart_types: Counter[str] = Counter()
     try:
         for index, sheet in enumerate(workbook.worksheets, start=1):
             non_empty = 0
@@ -98,6 +106,20 @@ def analyze_excel(path: Path, *, permit_data_extraction: bool) -> SampleManifest
                         non_empty += 1
                     if _has_formula(cell):
                         formulas += 1
+                    if cell.has_style:
+                        for color in (cell.fill.fgColor, cell.font.color):
+                            if color is not None and color.type == "rgb" and color.rgb:
+                                colors[str(color.rgb)[-6:].upper()] += 1
+                        if cell.font.name:
+                            fonts[cell.font.name] += 1
+                        if cell.font.sz:
+                            sizes[float(cell.font.sz)] += 1
+                        for side in (cell.border.left, cell.border.right, cell.border.top, cell.border.bottom):
+                            if side.style:
+                                borders[str(side.style)] += 1
+            row_heights.update(float(value.height) for value in sheet.row_dimensions.values() if value.height)
+            column_widths.update(float(value.width) for value in sheet.column_dimensions.values() if value.width)
+            chart_types.update(type(chart).__name__ for chart in sheet._charts)
 
             fields: list[FieldEvidence] = []
             display_name = f"Sheet {index}"
@@ -139,4 +161,16 @@ def analyze_excel(path: Path, *, permit_data_extraction: bool) -> SampleManifest
         extraction_permitted=permit_data_extraction,
         assumptions=assumptions,
         warnings=warnings,
+        style=StyleEvidence(
+            palette=[f"#{value}" for value, _ in colors.most_common(8)],
+            font_families=[value for value, _ in fonts.most_common(4)],
+            font_sizes=sorted(value for value, _ in sizes.most_common(6)),
+            row_heights=sorted(value for value, _ in row_heights.most_common(6)),
+            column_widths=sorted(value for value, _ in column_widths.most_common(6)),
+            border_styles=[value for value, _ in borders.most_common(5)],
+            chart_types=[value for value, _ in chart_types.most_common(6)],
+            organization=[f"worksheet[{index}]" for index, _ in enumerate(sections, start=1)],
+            confidence=Confidence.HIGH if sum(colors.values()) >= 5 else Confidence.MEDIUM if colors else Confidence.LOW,
+            requires_review=sum(colors.values()) < 5,
+        ),
     )

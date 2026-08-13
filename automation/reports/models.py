@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -16,6 +17,9 @@ class ReportDocument(BaseModel):
     records: list[dict[str, Any]]
     metrics: dict[str, int | float | None]
     synthetic: bool = False
+    filter_values: dict[str, Any] = Field(default_factory=dict)
+    insights: list[dict[str, str]] = Field(default_factory=list)
+    quality_findings: list[dict[str, str]] = Field(default_factory=list)
 
 
 class ReportRequest(BaseModel):
@@ -25,6 +29,7 @@ class ReportRequest(BaseModel):
     outputs: list[OutputKind] = Field(min_length=1)
     confidential: bool = False
     confidential_lifecycle_approved: bool = False
+    non_confidential_destination: Path | None = None
 
     @model_validator(mode="after")
     def confidentiality_must_match_specification(self) -> "ReportRequest":
@@ -34,6 +39,8 @@ class ReportRequest(BaseModel):
         enabled = set(self.document.specification.outputs.enabled)
         if not set(self.outputs) <= enabled:
             raise ValueError("Report outputs must be enabled by the approved specification")
+        if self.confidential and self.non_confidential_destination is not None:
+            raise ValueError("Confidential reports cannot use a persistent destination")
         return self
 
 
@@ -47,3 +54,4 @@ class ReportArtifact(BaseModel):
     confidential: bool
     one_time_download: bool
     size_bytes: int = Field(ge=0)
+    expires_at: str | None = None

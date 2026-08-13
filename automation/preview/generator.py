@@ -38,6 +38,10 @@ LABELS = {
 }
 
 
+def _excel_safe(value: object) -> object:
+    return "'" + value if isinstance(value, str) and value[:1] in {"=", "+", "-", "@"} else value
+
+
 def _synthetic_value(field_id: str, field_type: FieldType, index: int) -> Any:
     seed = f"{field_id}:{index}"
     randomizer = random.Random(seed)
@@ -103,19 +107,19 @@ def _excel(request: PreviewRequest, records: list[dict[str, Any]]) -> bytes:
     workbook = Workbook()
     summary = workbook.active
     summary.title = "Summary" if request.language == PreviewLanguage.ENGLISH else "Resumo"
-    summary.append([labels["title"]])
-    summary.append([labels["notice"]])
+    summary.append([_excel_safe(labels["title"])])
+    summary.append([_excel_safe(labels["notice"])])
     summary["A1"].font = Font(size=16, bold=True, color="FFFFFF")
     summary["A1"].fill = PatternFill("solid", fgColor="23543C")
     summary.column_dimensions["A"].width = 72
 
     data = workbook.create_sheet("Data" if request.language == PreviewLanguage.ENGLISH else "Dados")
-    data.append([field.display_name for field in request.dashboard_schema.fields])
+    data.append([_excel_safe(field.display_name) for field in request.dashboard_schema.fields])
     for cell in data[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="23543C")
     for record in records:
-        data.append([record.get(field.id) for field in request.dashboard_schema.fields])
+        data.append([_excel_safe(record.get(field.id)) for field in request.dashboard_schema.fields])
     data.freeze_panes = "A2"
     data.auto_filter.ref = data.dimensions
 

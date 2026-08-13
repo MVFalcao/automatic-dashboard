@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+import os
+import tempfile
+from pathlib import Path
 from threading import RLock
 from uuid import UUID, uuid4
 
@@ -44,10 +48,46 @@ def _validate_dependencies(section_ids: set[str], dependencies: dict[str, list[s
 
 
 class ApprovalStore:
-    def __init__(self) -> None:
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or Path(os.environ.get("DASHBOARD_APPROVAL_STATE", Path(tempfile.gettempdir()) / "universal-dashboard-agent" / "approvals.json"))
         self._packages: dict[UUID, ApprovalPackage] = {}
         self._audit: list[AuditEvent] = []
         self._lock = RLock()
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            packages = [ApprovalPackage.model_validate(item) for item in payload.get("packages", [])]
+            self._packages = {item.approval_id: item for item in packages}
+            self._audit = [AuditEvent.model_validate(item) for item in payload.get("audit", [])]
+        except (OSError, ValueError, TypeError):
+            self._packages, self._audit = {}, []
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        packages = []
+        for item in self._packages.values():
+            sanitized = item.model_dump(mode="json")
+            for section in sanitized["sections"].values():
+                section["feedback"] = None
+            packages.append(sanitized)
+        payload = {
+            "schema_version": 1,
+            "packages": packages,
+            "audit": [item.model_dump(mode="json") for item in self._audit],
+        }
+        fd, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".approvals-", text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     def create(self, request: CreateApprovalRequest) -> ApprovalPackage:
         section_ids = {section.id for section in request.draft_schema.sections}
@@ -66,6 +106,7 @@ class ApprovalStore:
         with self._lock:
             self._packages[package.approval_id] = package
             self._audit.append(AuditEvent(action="approval_created", details={"approval_id": str(package.approval_id), "section_count": len(package.sections)}))
+            self._save()
         return deepcopy(package)
 
     def get(self, approval_id: UUID) -> ApprovalPackage:
@@ -99,6 +140,7 @@ class ApprovalStore:
             self._audit.append(AuditEvent(action="section_decided", details={
                 "approval_id": str(approval_id), "section_id": section_id, "decision": section.status.value,
             }))
+            self._save()
             return deepcopy(package)
 
     def audit_history(self, *, approval_id: UUID | None = None) -> list[AuditEvent]:
