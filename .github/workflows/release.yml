@@ -100,13 +100,13 @@ jobs:
           $setup = Get-ChildItem "$env:RUNNER_TEMP\setup\*.exe" | Select-Object -First 1
           $install = "$env:RUNNER_TEMP\dashboard-agent"
           $installLog = "$env:RUNNER_TEMP\setup-install.log"
-          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$install" "/LOG=$installLog"
-          if ($LASTEXITCODE -ne 0) { throw "Silent installation failed with exit code $LASTEXITCODE" }
+          $installProcess = Start-Process -FilePath $setup.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$install", "/LOG=$installLog") -Wait -PassThru
+          if ($installProcess.ExitCode -ne 0) { throw "Silent installation failed with exit code $($installProcess.ExitCode)" }
           New-Item -ItemType Directory -Force "$install\.hermes-data" | Out-Null
           "synthetic-preserved-auth-state" | Set-Content "$install\.hermes-data\acceptance-marker.txt"
           '{"schema_version":1,"projects":[]}' | Set-Content "$install\projects.json"
-          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$install" "/LOG=$env:RUNNER_TEMP\setup-upgrade.log"
-          if ($LASTEXITCODE -ne 0) { throw "Silent upgrade failed with exit code $LASTEXITCODE" }
+          $upgradeProcess = Start-Process -FilePath $setup.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$install", "/LOG=$env:RUNNER_TEMP\setup-upgrade.log") -Wait -PassThru
+          if ($upgradeProcess.ExitCode -ne 0) { throw "Silent upgrade failed with exit code $($upgradeProcess.ExitCode)" }
           if (-not (Test-Path "$install\.hermes-data\acceptance-marker.txt")) { throw "Upgrade did not preserve Hermes authentication state" }
           if (-not (Test-Path "$install\projects.json")) { throw "Upgrade did not preserve the local project registry" }
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$install\scripts\smoke-test-install.ps1" -InstallDir $install

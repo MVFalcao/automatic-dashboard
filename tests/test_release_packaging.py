@@ -42,6 +42,11 @@ def test_release_workflow_has_dry_run_artifacts_and_manual_publish_gate() -> Non
     assert "--draft" in workflow
     assert "$releaseExists = $LASTEXITCODE -eq 0" in workflow
     assert "$global:LASTEXITCODE = 0" in workflow
+    assert "$installProcess = Start-Process" in workflow
+    assert "$upgradeProcess = Start-Process" in workflow
+    assert "-Wait -PassThru" in workflow
+    assert "$installProcess.ExitCode" in workflow
+    assert "$upgradeProcess.ExitCode" in workflow
 
 
 def test_windows_installer_has_transactional_upgrade_guards() -> None:
