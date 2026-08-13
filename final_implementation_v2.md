@@ -55,6 +55,7 @@ based only on synthetic public examples in tests and documentation.
 - [ ] Display “O agente faz uma pergunta por vez e não presume requisitos ausentes.” only in the guided intake/onboarding context.
 - [ ] Do not repeat this guidance text in every tab or persistent application header.
 - [ ] Keep each tab focused on its own task and show help text only where it is actionable.
+- [ ] In the “Este entendimento está correto?” tab, show the agent's understanding/note before the user confirms; this is recorded as a future modification and is intentionally not implemented in the current release.
 
 ## 5. Provider and OAuth resilience
 
