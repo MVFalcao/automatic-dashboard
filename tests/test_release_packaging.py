@@ -25,6 +25,8 @@ def test_inno_setup_is_user_scoped_and_offline() -> None:
     assert "UniversalDashboardAgent-bundle" in script
     assert "install-windows.ps1" in script
     assert "Uninstallable=no" in script
+    # Inno Setup escapes embedded quotes by doubling them, not with backslashes.
+    assert '\\"' not in script
 
 
 def test_release_manifest_writer_records_artifact_metadata(tmp_path: Path) -> None:
