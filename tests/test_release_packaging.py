@@ -40,6 +40,8 @@ def test_release_workflow_has_dry_run_artifacts_and_manual_publish_gate() -> Non
     assert "gh release create" in workflow
     assert "gh release edit" not in workflow
     assert "--draft" in workflow
+    assert "$releaseExists = $LASTEXITCODE -eq 0" in workflow
+    assert "$global:LASTEXITCODE = 0" in workflow
 
 
 def test_windows_installer_has_transactional_upgrade_guards() -> None:
