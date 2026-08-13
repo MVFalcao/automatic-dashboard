@@ -57,6 +57,14 @@ based only on synthetic public examples in tests and documentation.
 - [ ] Keep each tab focused on its own task and show help text only where it is actionable.
 - [ ] In the “Este entendimento está correto?” tab, show the agent's understanding/note before the user confirms; this is recorded as a future modification and is intentionally not implemented in the current release.
 
+## 4.2 Synthetic dashboard review follow-ups
+
+- [ ] Investigate the `POST /api/intake/{session_id}/draft` `422` path when Hermes returns feedback that does not validate as the strict draft schema.
+- [ ] Show a user-facing validation/remediation message for invalid Hermes draft responses while preserving the active specification.
+- [ ] Investigate `POST /api/projects` `422` responses during activation and validate the project directory as an absolute Windows path before submission.
+- [ ] Show the accepted path format next to the project-location answer and return field-level errors instead of a generic review failure.
+- [ ] Add an end-to-end test covering Hermes draft rejection, retry, project activation, and the successful synthetic review path.
+
 ## 5. Provider and OAuth resilience
 
 - [ ] Test OAuth expiry, cancellation, duplicate login, process termination, and application restart.
