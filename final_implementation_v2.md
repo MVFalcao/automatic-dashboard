@@ -50,6 +50,12 @@ based only on synthetic public examples in tests and documentation.
 - [ ] Add a copyable diagnostic identifier without exposing sensitive content.
 - [ ] Document how to collect diagnostics from Windows and Linux installations.
 
+## 4.1 Contextual guidance and tab content
+
+- [ ] Display “O agente faz uma pergunta por vez e não presume requisitos ausentes.” only in the guided intake/onboarding context.
+- [ ] Do not repeat this guidance text in every tab or persistent application header.
+- [ ] Keep each tab focused on its own task and show help text only where it is actionable.
+
 ## 5. Provider and OAuth resilience
 
 - [ ] Test OAuth expiry, cancellation, duplicate login, process termination, and application restart.
