@@ -48,7 +48,7 @@ test.afterAll(async () => {
 
 async function completeJourney(page: import("@playwright/test").Page, language: "en" | "pt") {
   await page.goto("/");
-  if (language === "en") await page.getByRole("button", { name: "EN" }).click();
+  if (language === "en") await page.getByRole("button", { name: "EN", exact: true }).click();
   const answers = language === "pt"
     ? ["Acompanhar resultados", "Equipe local", "Não", "Web, Excel e PDF", resolve(state, "projeto"), "Sim"]
     : ["Track outcomes", "Local team", "No", "Web, Excel and PDF", resolve(state, "project"), "Yes"];
@@ -65,8 +65,10 @@ async function completeJourney(page: import("@playwright/test").Page, language: 
   await page.goto(url);
   await expect(page.getByRole("heading", { name: language === "pt" ? "Revisão sintética do dashboard" : "Synthetic dashboard review" })).toBeVisible();
   const approve = language === "pt" ? "Aprovar seção" : "Approve section";
-  for (const section of await page.locator(".review-section").all()) {
+  await expect(page.locator(".review-section")).toHaveCount(3);
+  for (const [index, section] of (await page.locator(".review-section").all()).entries()) {
     await section.getByRole("button", { name: approve }).click();
+    await expect(page.locator(".status.approved")).toHaveCount(index + 1);
   }
   await expect(page.locator(".status.approved")).toHaveCount(3);
   await page.getByRole("button", { name: language === "pt" ? "Criar projeto e ativar especificação aprovada" : "Create project and activate approved specification" }).click();
