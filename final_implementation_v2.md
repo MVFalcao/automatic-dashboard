@@ -65,6 +65,13 @@ based only on synthetic public examples in tests and documentation.
 - [ ] Show the accepted path format next to the project-location answer and return field-level errors instead of a generic review failure.
 - [ ] Add an end-to-end test covering Hermes draft rejection, retry, project activation, and the successful synthetic review path.
 
+## 4.3 Visual theme follow-up
+
+- [ ] Replace the current green visual palette with a blue primary palette across the setup screen, review workspace, buttons, links, status indicators, and charts.
+- [ ] Define blue light/dark tokens with accessible text and focus-state contrast.
+- [ ] Preserve semantic colors for success, warning, error, pending, and blocked states rather than mapping every state to blue.
+- [ ] Update screenshots, visual tests, and user documentation after the palette change.
+
 ## 5. Provider and OAuth resilience
 
 - [ ] Test OAuth expiry, cancellation, duplicate login, process termination, and application restart.
