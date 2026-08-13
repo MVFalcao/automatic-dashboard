@@ -16,6 +16,7 @@ from automation.agent.gateway import GatewayConfig, HermesGateway
 # which runtime is managed by the dashboard application.
 HERMES_PACKAGE = "hermes-agent"
 HERMES_VERSION = "0.13.0"
+HERMES_GATEWAY_DEPENDENCY = "aiohttp==3.13.3"
 
 
 class HermesRuntimeSpec(BaseModel):
@@ -50,14 +51,22 @@ class HermesRuntime:
         self.spec = spec
 
     def install_command(self) -> list[str]:
-        return [self.spec.python, "-m", "pip", "install", "--upgrade", self.spec.requirement]
+        return [
+            self.spec.python,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            self.spec.requirement,
+            HERMES_GATEWAY_DEPENDENCY,
+        ]
 
     def install(self, *, check: bool = True) -> subprocess.CompletedProcess[str]:
         self.spec.environment_dir.mkdir(parents=True, exist_ok=True)
         return subprocess.run(self.install_command(), check=check, text=True, capture_output=True)
 
     def gateway_command(self) -> list[str]:
-        return [self.spec.hermes_executable, "gateway"]
+        return [self.spec.hermes_executable, "gateway", "run", "--quiet", "--replace"]
 
     def start_gateway(
         self,
@@ -67,4 +76,3 @@ class HermesRuntime:
         dry_run: bool = False,
     ):
         return gateway.start(config, self.spec.hermes_executable, dry_run=dry_run)
-

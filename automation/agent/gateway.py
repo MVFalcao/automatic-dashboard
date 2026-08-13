@@ -84,7 +84,7 @@ class HermesGateway:
         secret = self.credential_store.get(config.api_key_reference)
         if not secret:
             raise RuntimeError("Hermes gateway API key is missing from the OS credential store")
-        command = [executable, "gateway"]
+        command = [executable, "gateway", "run", "--quiet", "--replace"]
         environment = os.environ.copy()
         environment.update(
             {
