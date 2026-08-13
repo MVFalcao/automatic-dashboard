@@ -62,10 +62,21 @@ Node, Chromium, application, and Hermes runtimes. CI now repeats the offline
 Linux proof with package indexes disabled and retains a clean Windows install
 job.
 
-This is still a release candidate rather than a release certification. The
-published commit must pass all GitHub Actions, including the real Windows
-runner. An acceptance exercise with user-configured provider credentials and
-an explicitly approved real source/schedule is also required; it was not
-activated during remediation. The final independent review found and fixed an
-unconsumed Hermes subprocess-output risk, with no other open P0/P1 finding in
-the reviewed local diff.
+The published release-candidate commits passed all GitHub Actions, including
+the real Windows runner. On 2026-08-12 an explicitly approved acceptance run
+also used the public GitHub issues API as a real source: 20 records were
+processed in memory, three sections were approved, web/XLSX/PDF artifacts were
+generated, restart persistence passed, the temporary local schedule was
+disabled afterward, and a sampled source value did not appear in project or
+SQLite metadata. That run exposed and fixed configured API query loss and a
+first-run diagnostic that selected system Node instead of the bundled runtime.
+
+This remains a release candidate rather than a complete certification only
+because no supported provider login is configured in the acceptance
+environment and its OS keyring backend is unavailable. Hermes discovered a
+GitHub CLI-derived Copilot credential, but Copilot is not an approved product
+provider and the credential was not repurposed. A Claude, Codex, Gemini, or
+DeepSeek login through Hermes plus an authenticated gateway task remains the
+final acceptance requirement. The independent review found and fixed the
+Hermes subprocess-output risk, with no other open P0/P1 finding in the reviewed
+diff.

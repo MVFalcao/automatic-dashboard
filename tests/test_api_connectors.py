@@ -96,6 +96,20 @@ def test_page_pagination_and_deterministic_flattening() -> None:
     assert len(result.provenance) == 2
 
 
+def test_fixed_endpoint_query_is_preserved_during_sync() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["state"] == "all"
+        assert request.url.params["scope"] == "approved"
+        return httpx.Response(200, json=[{"id": 1, "amount": 10}], headers={"content-type": "application/json"})
+
+    client, _ = client_for(handler)
+    result = client.sync(approved_request(source(
+        endpoint="https://api.example.test/v1/records?state=all&scope=approved",
+    )))
+
+    assert result.record_count == 1
+
+
 def test_cursor_and_link_pagination() -> None:
     def cursor_handler(request: httpx.Request) -> httpx.Response:
         if request.url.params.get("cursor"):

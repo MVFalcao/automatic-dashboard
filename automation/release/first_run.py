@@ -19,6 +19,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Guide the first local dashboard setup")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--runtime", type=Path)
+    parser.add_argument("--browser-path", type=Path)
+    parser.add_argument("--node", dest="node_executable")
     parser.add_argument("--diagnostics-only", action="store_true")
     args = parser.parse_args()
     # The launcher creates the same kind of ephemeral token. Creating one for
@@ -27,7 +29,12 @@ def main() -> int:
         os.environ["DASHBOARD_LOCAL_AUTH_TOKEN"] = secrets.token_urlsafe(32)
     from automation.release.diagnostics import run_diagnostics
 
-    report = run_diagnostics(root=args.root, hermes_environment=args.runtime)
+    report = run_diagnostics(
+        root=args.root,
+        hermes_environment=args.runtime,
+        browser_path=args.browser_path,
+        node_executable=args.node_executable,
+    )
     print(f"Diagnostics: {'PASS' if report.ok else 'ATTENTION REQUIRED'}")
     for check in report.checks:
         if not check.ok:
