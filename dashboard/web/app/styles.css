@@ -50,13 +50,6 @@ button, textarea, select, input { font: inherit; }
 }
 h1 { max-width: 620px; margin: 0; font-size: clamp(2rem, 5vw, 3.7rem); line-height: 1.04; letter-spacing: -0.045em; }
 .intro { max-width: 590px; margin: 20px 0 28px; color: #536159; font-size: 1.08rem; line-height: 1.65; }
-.understanding-note { margin: 22px 0 28px; padding: 18px 20px; border: 1px solid #d5dbd6; border-radius: 16px; background: #f5f7f3; }
-.understanding-note h2 { margin: 0 0 6px; font-size: 1.2rem; }
-.understanding-note > p { margin: 0 0 14px; color: #536159; font-size: .9rem; }
-.understanding-note dl { display: grid; gap: 10px; margin: 0; }
-.understanding-note dl div { padding-top: 10px; border-top: 1px solid #dce2dc; }
-.understanding-note dt { color: #647068; font-size: .75rem; font-weight: 750; text-transform: uppercase; }
-.understanding-note dd { margin: 4px 0 0; line-height: 1.45; white-space: pre-wrap; }
 textarea {
   width: 100%;
   resize: vertical;
