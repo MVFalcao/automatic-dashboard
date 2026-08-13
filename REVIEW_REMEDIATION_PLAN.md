@@ -88,3 +88,10 @@ excludes generated `node_modules` and `.next` trees. The final provider
 acceptance requirement is satisfied. The independent review found and fixed
 the Hermes subprocess-output risk, with no other open P0/P1 finding in the
 reviewed diff.
+
+The subsequent final-implementation pass added a secret-free visual Codex
+OAuth lifecycle, Windows-first offline packaging definitions, version checks,
+release-manifest generation, and a tag-triggered draft-release workflow. The
+remaining gates are Inno Setup compilation on the release runner, clean-machine
+acceptance of the generated Setup.exe, and explicit user approval before any
+draft release is published.

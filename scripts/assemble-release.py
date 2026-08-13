@@ -42,7 +42,7 @@ def copy_tree(source: Path, destination: Path) -> None:
         if not in_standalone and "node_modules" in names:
             ignored.add("node_modules")
         if directory_path.name == ".next":
-            ignored.update(set(names) & {"cache", "dev"})
+            ignored.update(set(names) - {"standalone", "static"})
         if directory_path == root:
             ignored.update(set(names) & ROOT_EXCLUDED)
         return ignored
@@ -74,12 +74,17 @@ def main() -> int:
     output.mkdir(parents=True)
     copy_tree(source, output / "app")
     packaged_web = output / "app" / "dashboard" / "web"
+    copy_tree(standalone, packaged_web / ".next" / "standalone")
     copy_tree(source / "dashboard" / "web" / ".next" / "static", packaged_web / ".next" / "standalone" / ".next" / "static")
     if (source / "dashboard" / "web" / "public").is_dir():
         copy_tree(source / "dashboard" / "web" / "public", packaged_web / ".next" / "standalone" / "public")
     copy_tree(require(args.python_runtime, "Pinned Python runtime"), output / "runtime" / "python")
     copy_tree(require(args.node_runtime, "Pinned Node runtime"), output / "runtime" / "node")
     copy_tree(require(args.playwright_browsers, "Playwright Chromium"), output / "runtime" / "playwright")
+    for installer in ("install-windows.ps1", "uninstall-windows.ps1", "smoke-test-install.ps1"):
+        destination = output / "scripts" / installer
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / "scripts" / installer, destination)
     wheels = output / "wheels"
     wheels.mkdir()
     subprocess.run(

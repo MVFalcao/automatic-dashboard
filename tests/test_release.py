@@ -104,12 +104,15 @@ def test_release_copy_preserves_standalone_dependencies_only(tmp_path: Path) -> 
     standalone = source / "dashboard" / "web" / ".next" / "standalone" / "node_modules" / "next"
     standalone.mkdir(parents=True)
     (standalone / "server.js").write_text("packaged runtime dependency", encoding="utf-8")
+    (source / "dashboard" / "web" / ".next" / "cache").mkdir(parents=True)
+    (source / "dashboard" / "web" / ".next" / "cache" / "trace").write_text("build cache", encoding="utf-8")
 
     destination = tmp_path / "bundle"
     copy_tree(source, destination)
 
     assert not (destination / "node_modules").exists()
     assert not (destination / "dashboard" / "web" / "node_modules").exists()
+    assert not (destination / "dashboard" / "web" / ".next" / "cache").exists()
     assert (destination / "dashboard" / "web" / ".next" / "standalone" / "node_modules" / "next" / "server.js").is_file()
 
 
