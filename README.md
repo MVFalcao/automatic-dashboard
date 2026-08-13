@@ -213,7 +213,26 @@ The sanitizer automatically discovers person-specific team labels. Supply one
 `--replace` and `--forbidden-term` pair for each additional private organization,
 program, or person label found in a source template.
 
-## Next step
+## Windows v0.1.0 release
 
-Complete the platform rules in `context.md`, then begin Milestone 1 in
-`IMPLEMENTATION_PLAN.md`.
+The supported first public distribution is a per-user, offline Windows x64
+Setup.exe. It includes the application runtimes and does not require Python,
+Node.js, or internet access during installation. The unsigned installer may
+show a Windows SmartScreen warning; verify its SHA-256 value against the
+published `SHA256SUMS.txt` before choosing **More info → Run anyway**.
+
+After installation, open **Universal Dashboard Agent** from the Start Menu.
+The local browser UI is bound to `127.0.0.1` only. In Project operations, use
+**Connect Codex** to complete the browser device login, or configure Claude,
+Gemini, or DeepSeek with an API key stored in the operating system credential
+manager. OAuth tokens never enter project files or the browser UI.
+
+The installer also creates **Configure AI provider** and **Uninstall Universal
+Dashboard Agent** shortcuts. Uninstall removes only the application directory;
+project folders and report folders elsewhere are not selected automatically.
+
+Release maintainers create the `v0.1.0` tag from `main`. CI builds and tests a
+draft GitHub Release containing only the Setup.exe, checksums, and a release
+manifest. A maintainer must perform the clean-machine acceptance checklist in
+`final_implementation.md` and explicitly publish the draft; tag pushes never
+publish a public release automatically.

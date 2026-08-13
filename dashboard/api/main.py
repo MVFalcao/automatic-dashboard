@@ -31,6 +31,7 @@ from dashboard.api.models import SetupCapabilities
 from dashboard.api.uploads import UploadInspection, inspect_upload
 from dashboard.api.security import enforce_local_security
 from automation.agent.managed import managed_hermes
+from automation.agent.oauth import codex_oauth
 from automation.reports.service import artifact_store
 from automation.pipeline import ProductionPipelineExecutor
 from automation.approval.models import ApprovalPackage, CreateApprovalRequest
@@ -91,6 +92,7 @@ async def application_lifespan(_: FastAPI):
         yield
     finally:
         schedule_service.stop()
+        codex_oauth.stop()
         managed_hermes.stop()
         artifact_store.stop()
 

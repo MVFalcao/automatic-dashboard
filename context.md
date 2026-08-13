@@ -140,6 +140,12 @@ preview before activation. OS notifications are optional and best effort.
 
 Release/install decisions:
 
+- The v0.1.0 public distribution is Windows x64 first; Linux remains supported
+  by the validated technical installer and offline bundle but is not included
+  in the first end-user release.
+- The Windows public artifact is an unsigned, per-user, offline Setup.exe;
+  checksums and SmartScreen guidance are required until code signing is
+  available.
 - Windows and Linux installers are user-scoped and do not require Docker or
   administrator access where the operating system permits it.
 - Installers provision an application-owned Python environment, Node frontend,

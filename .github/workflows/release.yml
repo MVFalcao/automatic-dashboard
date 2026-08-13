@@ -1,0 +1,83 @@
+name: draft-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with: { version: "0.12.3" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20.9.0" }
+      - name: Validate release tag and metadata
+        shell: pwsh
+        run: |
+          $version = python scripts/check-version.py --tag "${env:GITHUB_REF_NAME}"
+          if ($version -ne "0.1.0") { throw "Unexpected release version: $version" }
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          uv sync --locked --extra dev
+          npm.cmd --prefix dashboard/web ci
+          npm.cmd --prefix dashboard/web run check
+          npm.cmd --prefix dashboard/web run build
+      - name: Install and package pinned runtimes
+        shell: pwsh
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}\playwright
+        run: |
+          uv run playwright install chromium
+          $python = (Get-Command python).Source
+          $pythonRoot = Split-Path (Split-Path $python -Parent) -Parent
+          $node = (Get-Command node).Source
+          $nodeRoot = Split-Path $node -Parent
+          $hermes = Join-Path $env:RUNNER_TEMP "hermes-build"
+          & $python -m venv $hermes
+          & (Join-Path $hermes "Scripts\python.exe") -m pip install "hermes-agent==0.13.0" "aiohttp==3.13.3"
+          & $python scripts/assemble-release.py --output "$env:RUNNER_TEMP\dashboard-bundle" --python-runtime $pythonRoot --node-runtime $nodeRoot --hermes-runtime $hermes --playwright-browsers $env:PLAYWRIGHT_BROWSERS_PATH
+      - name: Build offline Setup.exe
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler ISCC.exe is not available on the runner" }
+          & $iscc "/DBundleDir=$env:RUNNER_TEMP\dashboard-bundle" "/O$env:RUNNER_TEMP\setup" scripts/UniversalDashboardAgent.iss
+      - name: Offline install, smoke test and uninstall
+        shell: pwsh
+        run: |
+          $bundle = "$env:RUNNER_TEMP\dashboard-bundle"
+          $install = "$env:RUNNER_TEMP\dashboard-agent"
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$bundle\scripts\install-windows.ps1" -BundleDir $bundle -InstallDir $install
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$bundle\scripts\smoke-test-install.ps1" -InstallDir $install
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$bundle\scripts\uninstall-windows.ps1" -InstallDir $install -ConfirmUninstall
+      - name: Scan bundle and create release metadata
+        shell: pwsh
+        run: |
+          $bundle = "$env:RUNNER_TEMP\dashboard-bundle"
+          $setup = Get-ChildItem "$env:RUNNER_TEMP\setup\*.exe" | Select-Object -First 1
+          if ($setup.Length -ge 2GB) { throw "Setup.exe exceeds GitHub's 2 GiB asset limit" }
+          if (Get-ChildItem $bundle -Recurse -File | Select-String -Pattern 'sk-[A-Za-z0-9]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY') { throw "Secret-like content found in release bundle" }
+          python scripts/write-release-manifest.py --version 0.1.0 --setup $setup.FullName --bundle $bundle --output "$env:RUNNER_TEMP\release-manifest.json"
+          Get-FileHash $setup.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($setup.Name)" } | Set-Content "$env:RUNNER_TEMP\SHA256SUMS.txt"
+      - name: Create draft GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = Get-ChildItem "$env:RUNNER_TEMP\setup\*.exe" | Select-Object -First 1
+          gh release create $env:GITHUB_REF_NAME --draft --title "Universal Dashboard Agent $env:GITHUB_REF_NAME" --notes "Draft unsigned Windows x64 release; publish only after clean-machine acceptance." $setup.FullName "$env:RUNNER_TEMP\SHA256SUMS.txt" "$env:RUNNER_TEMP\release-manifest.json"

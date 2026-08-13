@@ -6,8 +6,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from uuid import UUID
 
-from automation.agent.credentials import CredentialReference, KeyringCredentialStore
+from automation.agent.credentials import CredentialReference, KeyringCredentialStore, NativeOAuthReference
 from automation.agent.models import AuthMethod, ProviderConnection, ProviderName, TaskCapability, TokenEstimate
+from automation.agent.oauth import codex_oauth
 from automation.agent.providers import ProviderRegistry
 from automation.agent.runtime import HERMES_PACKAGE, HERMES_VERSION
 from automation.agent.managed import managed_hermes
@@ -32,6 +33,24 @@ class ProviderKeySetupRequest(BaseModel):
     capabilities: set[TaskCapability] = Field(default_factory=lambda: {TaskCapability.CONVERSATION, TaskCapability.STRUCTURED_OUTPUT})
     estimated_input_tokens: int = Field(default=0, ge=0)
     estimated_output_tokens: int = Field(default=0, ge=0)
+
+
+class CodexOAuthStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: UUID
+
+
+class CodexOAuthStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    project_id: str
+    status: str
+    verification_url: str | None = None
+    user_code: str | None = None
+    expires_in: int = Field(ge=0)
+    error: str | None = None
 
 
 router = APIRouter(prefix="/api", tags=["hermes"])
@@ -98,6 +117,61 @@ def connect_provider_api_key(payload: ProviderKeySetupRequest) -> ProviderConnec
     if identifier not in project.provider_ids:
         project_repository.save(project.model_copy(update={"provider_ids": [*project.provider_ids, identifier]}))
     return provider_registry.connect(connection)
+
+
+def _persist_codex_connection(project_id: UUID) -> ProviderConnection:
+    try:
+        project = project_repository.get(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    connection = ProviderConnection(
+        provider=ProviderName.CODEX,
+        account_id="local",
+        model="gpt-5.5",
+        auth_method=AuthMethod.OAUTH,
+        credential=NativeOAuthReference(
+            backend="hermes-auth-store",
+            provider="openai-codex",
+            account="local",
+        ),
+        capabilities={TaskCapability.CONVERSATION, TaskCapability.STRUCTURED_OUTPUT, TaskCapability.INSIGHTS},
+        token_estimate=TokenEstimate(input_tokens=0, output_tokens=0),
+    )
+    repository = ProjectWorkflowRepository(project.project_directory)
+    identifier = "codex-local"
+    _atomic_json(repository._path("providers", identifier), connection.model_dump(mode="json"))
+    if identifier not in project.provider_ids:
+        project_repository.save(project.model_copy(update={"provider_ids": [*project.provider_ids, identifier]}))
+    return provider_registry.connect(connection)
+
+
+@router.post("/providers/oauth/codex/start", response_model=CodexOAuthStatus, status_code=201)
+def start_codex_oauth(payload: CodexOAuthStartRequest) -> CodexOAuthStatus:
+    try:
+        project_repository.get(payload.project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    return CodexOAuthStatus.model_validate(codex_oauth.start(str(payload.project_id)))
+
+
+@router.get("/providers/oauth/codex/{session_id}", response_model=CodexOAuthStatus)
+def poll_codex_oauth(session_id: str) -> CodexOAuthStatus:
+    try:
+        result = codex_oauth.status(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="OAuth session not found") from exc
+    response = CodexOAuthStatus.model_validate(result)
+    if response.status == "connected":
+        _persist_codex_connection(UUID(response.project_id))
+    return response
+
+
+@router.delete("/providers/oauth/codex/{session_id}", status_code=204)
+def cancel_codex_oauth(session_id: str) -> None:
+    try:
+        codex_oauth.cancel(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="OAuth session not found") from exc
 
 
 @router.delete("/providers/{provider}", status_code=204)

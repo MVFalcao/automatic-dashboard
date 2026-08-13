@@ -9,6 +9,13 @@ param(
     [switch]$NoCopy
 )
 $ErrorActionPreference = "Stop"
+$installDirExisted = Test-Path -LiteralPath $InstallDir
+trap {
+    if (-not $installDirExisted -and (Test-Path -LiteralPath $InstallDir)) {
+        Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    throw
+}
 
 function Fail([string]$Message) { throw $Message }
 function Get-CommandPath([string]$Name) {
@@ -150,13 +157,22 @@ $hermesExecutable = Join-Path $hermes "Scripts\hermes.exe"
 `$env:DASHBOARD_HERMES_RUNTIME = '$hermes'
 `$env:DASHBOARD_HERMES_HOME = '$InstallDir\.hermes-data'
 `$env:DASHBOARD_API_ORIGIN = 'http://127.0.0.1:8000'
+if (Test-NetConnection -ComputerName 127.0.0.1 -Port 8000 -InformationLevel Quiet) {
+  try { if ((Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8000/health').StatusCode -eq 200) { Start-Process 'http://127.0.0.1:3000'; exit 0 } } catch { }
+}
 `$api = Start-Process -FilePath '$venvPython' -ArgumentList '-m','uvicorn','dashboard.api.main:app','--host','127.0.0.1','--port','8000' -WorkingDirectory '$InstallDir' -PassThru
 try {
+  for (`$i = 0; `$i -lt 60; `$i++) { try { if ((Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8000/health').StatusCode -eq 200) { break } } catch { Start-Sleep -Milliseconds 250 } }
   Push-Location '$InstallDir\dashboard\web'
-  if (Test-Path '.next\standalone\server.js') { `$env:HOSTNAME='127.0.0.1'; `$env:PORT='3000'; & '$node' '.next\standalone\server.js' }
-  else { npm run start -- -H 127.0.0.1 -p 3000 }
+  `$env:HOSTNAME='127.0.0.1'; `$env:PORT='3000'
+  if (Test-Path '.next\standalone\server.js') { `$web = Start-Process -FilePath '$node' -ArgumentList '.next\standalone\server.js' -WorkingDirectory '$InstallDir\dashboard\web' -PassThru -WindowStyle Hidden }
+  else { `$web = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','start','--','-H','127.0.0.1','-p','3000' -WorkingDirectory '$InstallDir\dashboard\web' -PassThru -WindowStyle Hidden }
+  for (`$i = 0; `$i -lt 60; `$i++) { try { if ((Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3000').StatusCode -eq 200) { break } } catch { Start-Sleep -Milliseconds 250 } }
+  Start-Process 'http://127.0.0.1:3000'
+  Wait-Process -Id `$web.Id
 } finally {
   Pop-Location
+  if (`$web) { Stop-Process -Id `$web.Id -Force -ErrorAction SilentlyContinue }
   Stop-Process -Id `$api.Id -Force -ErrorAction SilentlyContinue
   `$env:HERMES_HOME = '$InstallDir\.hermes-data'
   & '$hermesExecutable' gateway stop | Out-Null

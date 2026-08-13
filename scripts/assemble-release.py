@@ -32,17 +32,21 @@ def copy_tree(source: Path, destination: Path) -> None:
         # node_modules; every other dependency tree is a development artifact.
         directory_path = Path(directory).resolve()
         relative_parts = directory_path.relative_to(root).parts
+        # Next's standalone server resolves its production build relative to
+        # its own directory, so the nested .next tree must remain intact.
+        standalone_tree = root.name == "standalone" and root.parent.name == ".next"
         in_standalone = any(
             relative_parts[index:index + 2] == (".next", "standalone")
             for index in range(len(relative_parts) - 1)
         )
+        in_standalone = in_standalone or standalone_tree
         ignored = set(names) & ALWAYS_EXCLUDED
         ignored.update(name for name in names if name == ".env" or name.startswith(".env.") or name.startswith("private_source_"))
         ignored.update(name for name in names if name.endswith((".egg-info", ".tsbuildinfo")))
         if not in_standalone and "node_modules" in names:
             ignored.add("node_modules")
-        if directory_path.name == ".next":
-            ignored.update(set(names) & {"cache", "dev"})
+        if directory_path.name == ".next" and not in_standalone:
+            ignored.update(set(names) - {"standalone", "static"})
         if directory_path == root:
             ignored.update(set(names) & ROOT_EXCLUDED)
         return ignored
@@ -74,12 +78,17 @@ def main() -> int:
     output.mkdir(parents=True)
     copy_tree(source, output / "app")
     packaged_web = output / "app" / "dashboard" / "web"
+    copy_tree(standalone, packaged_web / ".next" / "standalone")
     copy_tree(source / "dashboard" / "web" / ".next" / "static", packaged_web / ".next" / "standalone" / ".next" / "static")
     if (source / "dashboard" / "web" / "public").is_dir():
         copy_tree(source / "dashboard" / "web" / "public", packaged_web / ".next" / "standalone" / "public")
     copy_tree(require(args.python_runtime, "Pinned Python runtime"), output / "runtime" / "python")
     copy_tree(require(args.node_runtime, "Pinned Node runtime"), output / "runtime" / "node")
     copy_tree(require(args.playwright_browsers, "Playwright Chromium"), output / "runtime" / "playwright")
+    for installer in ("install-windows.ps1", "uninstall-windows.ps1", "smoke-test-install.ps1"):
+        destination = output / "scripts" / installer
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / "scripts" / installer, destination)
     wheels = output / "wheels"
     wheels.mkdir()
     subprocess.run(
