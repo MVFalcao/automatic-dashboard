@@ -31,6 +31,8 @@ class ProviderSelection:
     model: str
     estimated_total_tokens: int
     reason: str
+    actual_input_tokens: int = 0
+    actual_output_tokens: int = 0
 
 
 class ProviderRouter:
@@ -155,4 +157,3 @@ def setup_instructions(provider: ProviderName):
         ),
     }
     return descriptors[provider]
-

@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from automation.agent.credentials import CredentialReference, MemoryCredentialStore
-from automation.connectors.client import ApiClient, ApiRequestError
+from automation.connectors.client import ApiClient, ApiRequestError, _safe_url
 from automation.connectors.models import (
     ApiAuthMethod,
     ApiSourceConfig,
@@ -131,6 +131,24 @@ def test_cross_origin_pagination_link_is_rejected_before_request() -> None:
         pagination=PaginationConfig(kind=PaginationKind.LINK, next_link_path="links.next")
     )))
     assert [record["id"] for record in result.records] == [1, 2]
+
+
+def test_url_credentials_fragments_private_dns_and_rebinding_are_rejected() -> None:
+    configured = source()
+    with pytest.raises(ApiRequestError, match="credentials"):
+        _safe_url(configured, "https://user:pass@api.example.test/v1/records")
+    with pytest.raises(ApiRequestError, match="fragments"):
+        _safe_url(configured, "https://api.example.test/v1/records#hidden")
+    with pytest.raises(ApiRequestError, match="non-public"):
+        _safe_url(configured, str(configured.endpoint), resolver=lambda host, port: ["127.0.0.1"])
+    calls = 0
+    def rebinding(host: str, port: int) -> list[str]:
+        nonlocal calls
+        calls += 1
+        return ["8.8.8.8"] if calls == 1 else ["10.0.0.1"]
+    assert _safe_url(configured, str(configured.endpoint), resolver=rebinding) == "8.8.8.8"
+    with pytest.raises(ApiRequestError, match="non-public"):
+        _safe_url(configured, str(configured.endpoint), resolver=rebinding)
 
 
 def test_bounded_retry_rate_limit_and_auth_header() -> None:

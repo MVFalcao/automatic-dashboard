@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from automation.agent.client import HermesExecutionError, HermesTaskRunner
+from automation.agent.client import HermesClient, HermesExecutionError, HermesTaskRunner
 from automation.agent.credentials import (
     CredentialReference,
     MemoryCredentialStore,
@@ -107,6 +108,37 @@ def test_gateway_requires_loopback_and_keeps_key_out_of_command() -> None:
     gateway = HermesGateway(store)
     config = GatewayConfig(api_key_reference=reference, cors_origins=("http://127.0.0.1:3000",))
     assert gateway.start(config, "/private/hermes", dry_run=True) == ["/private/hermes", "gateway"]
+    for invalid in (
+        "http://127.0.0.1.evil.test:8642",
+        "https://127.0.0.1:8642",
+        "http://user@127.0.0.1:8642",
+        "http://127.0.0.1:8642/path",
+        "http://127.0.0.1",
+    ):
+        with pytest.raises(ValueError):
+            HermesClient(invalid, "token")
+
+
+def test_gateway_discards_unconsumed_child_output(monkeypatch) -> None:
+    captured = {}
+
+    class Process:
+        def poll(self):
+            return None
+
+    def popen(command, **kwargs):
+        captured.update(kwargs)
+        return Process()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    store = MemoryCredentialStore()
+    reference = CredentialReference(service="test", account="gateway")
+    store.put(reference, "super-secret")
+
+    HermesGateway(store).start(GatewayConfig(api_key_reference=reference), "/private/hermes")
+
+    assert captured["stdout"] is subprocess.DEVNULL
+    assert captured["stderr"] is subprocess.DEVNULL
 
 
 def test_runtime_is_pinned_and_uses_managed_executable(tmp_path: Path) -> None:

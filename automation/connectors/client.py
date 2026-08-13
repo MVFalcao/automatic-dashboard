@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import socket
 import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -70,23 +71,49 @@ def _drift(expected: ApiInspection, actual: ApiInspection) -> list[SchemaDriftEv
     return classify_schema_drift(expected, actual)
 
 
-def _safe_url(source: ApiSourceConfig, url: str, *, initial: bool = False) -> None:
+Resolver = Callable[[str, int], list[str]]
+
+
+def _origin(url: str) -> tuple[str, str, int]:
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ApiRequestError("API URL must use HTTP or HTTPS")
+    return parsed.scheme, parsed.hostname.casefold(), parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def _system_resolver(host: str, port: int) -> list[str]:
+    try:
+        return sorted({item[4][0] for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)})
+    except socket.gaierror as exc:
+        raise ApiRequestError("API endpoint DNS resolution failed", retryable=True) from exc
+
+
+def _safe_url(source: ApiSourceConfig, url: str, *, resolver: Resolver | None = None) -> str | None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ApiRequestError("API URL must use HTTP or HTTPS")
+    if parsed.username is not None or parsed.password is not None:
+        raise ApiRequestError("API URLs may not contain user credentials")
+    if parsed.fragment:
+        raise ApiRequestError("API URLs may not contain fragments")
     host = parsed.hostname.casefold()
     blocked_names = {"localhost", "localhost.localdomain", "metadata.google.internal"}
-    if initial and (host in blocked_names or host.endswith(".local") or host.endswith(".internal")):
+    if host in blocked_names or host.endswith(".localhost") or host.endswith(".local") or host.endswith(".internal"):
         raise ApiRequestError("API endpoint resolves to a local or internal host")
+    if _origin(url) != _origin(str(source.endpoint)):
+        raise ApiRequestError("Redirects and pagination links may not change API origin")
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
         address = None
-    if initial and address is not None and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
-        raise ApiRequestError("API endpoint resolves to a private or reserved address")
-    origin = urlsplit(str(source.endpoint))
-    if not initial and (parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)) != (origin.scheme, origin.hostname, origin.port or (443 if origin.scheme == "https" else 80)):
-        raise ApiRequestError("Pagination links may not change API origin")
+    addresses = [str(address)] if address is not None else (resolver(host, _origin(url)[2]) if resolver else [])
+    for candidate in addresses:
+        resolved = ipaddress.ip_address(candidate)
+        if not resolved.is_global:
+            raise ApiRequestError("API endpoint resolves to a non-public address")
+    if resolver is not None and not addresses:
+        raise ApiRequestError("API endpoint DNS resolution returned no addresses")
+    return addresses[0] if addresses else None
 
 
 class ApiClient:
@@ -98,10 +125,14 @@ class ApiClient:
         oauth_store: OAuthTokenProvider | None = None,
         *,
         transport: httpx.BaseTransport | None = None,
+        resolver: Resolver | None = None,
     ) -> None:
         self.credential_store = credential_store
         self.oauth_store = oauth_store
         self.transport = transport
+        # Mock transports deliberately keep their logical URL.  Production
+        # requests always resolve and pin a validated public address.
+        self.resolver = resolver or (None if transport is not None else _system_resolver)
         self._last_request_at: float | None = None
 
     def _auth_headers(self, source: ApiSourceConfig) -> dict[str, str]:
@@ -134,13 +165,36 @@ class ApiClient:
         self._last_request_at = time.monotonic()
 
     def _request(self, source: ApiSourceConfig, url: str, params: dict[str, Any]) -> Any:
-        _safe_url(source, url, initial=url == str(source.endpoint))
+        redirects = 0
         headers = self._auth_headers(source)
         for attempt in range(source.max_retries + 1):
             self._wait_rate_limit(source)
             try:
                 with httpx.Client(timeout=source.timeout_seconds, transport=self.transport, follow_redirects=False) as client:
-                    response = client.get(url, params=params, headers=headers)
+                    current_url = str(httpx.URL(url, params=params))
+                    while True:
+                        address = _safe_url(source, current_url, resolver=self.resolver)
+                        logical = httpx.URL(current_url)
+                        request_headers = dict(headers)
+                        request_url = logical
+                        if address is not None and self.transport is None:
+                            port = logical.port or (443 if logical.scheme == "https" else 80)
+                            default_port = (logical.scheme == "https" and port == 443) or (logical.scheme == "http" and port == 80)
+                            request_headers["Host"] = logical.host if default_port else f"{logical.host}:{port}"
+                            request_url = logical.copy_with(host=address)
+                        request = client.build_request("GET", request_url, headers=request_headers)
+                        if address is not None and logical.scheme == "https":
+                            request.extensions["sni_hostname"] = logical.host.encode("idna")
+                        response = client.send(request)
+                        if response.status_code not in {301, 302, 303, 307, 308}:
+                            break
+                        location = response.headers.get("location")
+                        if not location:
+                            raise ApiRequestError("API redirect did not include a destination")
+                        redirects += 1
+                        if redirects > 5:
+                            raise ApiRequestError("API redirect limit exceeded")
+                        current_url = urljoin(current_url, location)
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 if attempt >= source.max_retries:
                     raise ApiRequestError("The API request failed after bounded retries", retryable=True) from exc
@@ -198,10 +252,11 @@ class ApiClient:
         if request.mode == "incremental" and not source.incremental_confirmed:
             raise ApiRequestError("Incremental refresh requires an approved updated-time field")
         records: list[dict[str, Any]] = []
+        observed_records: list[dict[str, Any]] = []
         checkpoint_values: list[Any] = []
         provenance: list[ExtractionProvenance] = []
         url = str(source.endpoint)
-        _safe_url(source, url, initial=True)
+        _safe_url(source, url, resolver=self.resolver)
         params: dict[str, Any] = {}
         if request.mode == "incremental":
             params["updated_since"] = request.checkpoint.isoformat() if isinstance(request.checkpoint, datetime) else request.checkpoint
@@ -220,6 +275,7 @@ class ApiClient:
             for index, record in enumerate(batch):
                 checkpoint_values.append(_checkpoint_value(record, source.incremental_field))
                 flattened = flatten_record(record)
+                observed_records.append(flattened)
                 if request.approved_mappings:
                     normalized = {
                         target: flattened.get(path)
@@ -256,7 +312,7 @@ class ApiClient:
         warnings = [] if complete else ["Pagination stopped at the configured maximum page limit"]
         drift: list[SchemaDriftEvent] = []
         if expected_inspection is not None:
-            actual = infer_api_schema(records, source_id=source.id)
+            actual = infer_api_schema(observed_records, source_id=source.id)
             drift = _drift(expected_inspection, actual)
             if any(item.classification is DriftClass.BLOCKING for item in drift):
                 raise ApiRequestError("The API response has blocking schema drift; review is required")

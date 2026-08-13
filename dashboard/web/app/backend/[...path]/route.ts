@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-const API_ORIGIN = "http://127.0.0.1:8000";
+const API_ORIGIN = process.env.DASHBOARD_API_ORIGIN ?? "http://127.0.0.1:8000";
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;

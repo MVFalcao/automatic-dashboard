@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1",
     "check": "tsc --noEmit"
+    ,"e2e": "playwright test"
   },
   "dependencies": {
     "echarts": "^6.1.0",
@@ -18,6 +19,7 @@
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.1",
     "@types/node": "^20.17.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

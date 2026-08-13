@@ -139,7 +139,7 @@ def check_network_configuration(*, api_host: str, web_host: str, cors_origins: S
 def _browser_check(python_executable: str, browser_path: Path | None) -> Diagnostic:
     try:
         result = subprocess.run(
-            [python_executable, "-c", "import playwright; print(playwright.__version__)"],
+            [python_executable, "-c", "import importlib.metadata; print(importlib.metadata.version('playwright'))"],
             capture_output=True,
             text=True,
             timeout=5,

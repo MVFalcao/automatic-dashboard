@@ -11,8 +11,14 @@ from test_dashboard_spec import valid_spec
 
 
 def document() -> ReportDocument:
+    spec = valid_spec()
+    payload = spec.model_dump(mode="json")
+    payload["sections"].append({
+        "id": "details", "title": "Details", "kind": "table",
+        "field_ids": ["category", "amount"], "depends_on": ["summary"], "order": 1,
+    })
     return ReportDocument(
-        specification=valid_spec(),
+        specification=type(spec).model_validate(payload),
         records=[{"category": "A", "amount": 10}, {"category": "B", "amount": 20}],
         metrics={"total": 30},
         synthetic=True,
@@ -36,6 +42,24 @@ def test_excel_escapes_formula_like_text() -> None:
     try:
         assert workbook["Data"]["A2"].value == "'=HYPERLINK(\"https://attacker\")"
         assert workbook["Data"]["A2"].data_type == "s"
+    finally:
+        workbook.close()
+
+
+def test_excel_escapes_formula_like_title_headings_labels_and_explanations() -> None:
+    spec = document().specification
+    payload = spec.model_dump(mode="json")
+    payload["title"] = "=TITLE"
+    payload["fields"][0]["label"] = "+FIELD"
+    payload["metrics"][0]["label"] = "-METRIC"
+    payload["metrics"][0]["explanation"] = "@EXPLANATION"
+    report = document().model_copy(update={"specification": type(spec).model_validate(payload)})
+    workbook = load_workbook(BytesIO(render_excel(report)), data_only=False)
+    try:
+        assert workbook["Summary"]["A1"].value == "'=TITLE"
+        assert workbook["Summary"]["A3"].value == "'-METRIC"
+        assert workbook["Summary"]["C3"].value == "'@EXPLANATION"
+        assert workbook["Data"]["A1"].value == "'+FIELD"
     finally:
         workbook.close()
 

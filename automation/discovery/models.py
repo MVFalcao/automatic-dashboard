@@ -48,6 +48,23 @@ class SectionEvidence(BaseModel):
     attributes: dict[str, str | int | float | bool] = Field(default_factory=dict)
 
 
+class StyleEvidence(BaseModel):
+    """Value-free visual evidence that may be approved for renderer styling."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    palette: list[str] = Field(default_factory=list)
+    font_families: list[str] = Field(default_factory=list)
+    font_sizes: list[float] = Field(default_factory=list)
+    row_heights: list[float] = Field(default_factory=list)
+    column_widths: list[float] = Field(default_factory=list)
+    border_styles: list[str] = Field(default_factory=list)
+    chart_types: list[str] = Field(default_factory=list)
+    organization: list[str] = Field(default_factory=list)
+    confidence: Confidence = Confidence.LOW
+    requires_review: bool = True
+
+
 class SampleManifest(BaseModel):
     """Structural evidence only; it never contains source record values."""
 
@@ -58,6 +75,7 @@ class SampleManifest(BaseModel):
     extraction_permitted: bool
     assumptions: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    style: StyleEvidence = Field(default_factory=StyleEvidence)
 
 
 class ProposedField(BaseModel):

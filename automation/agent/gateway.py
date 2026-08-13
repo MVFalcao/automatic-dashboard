@@ -100,7 +100,10 @@ class HermesGateway:
             environment.update(extra_environment)
         if dry_run:
             return command
-        process = subprocess.Popen(command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # The service does not consume gateway logs. Unread pipes can fill and
+        # deadlock a long-running child, while also retaining provider output
+        # in process memory.
+        process = subprocess.Popen(command, env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._process = GatewayProcess(process=process, config=config)
         return self._process
 
@@ -112,4 +115,3 @@ class HermesGateway:
     @property
     def process(self) -> GatewayProcess | None:
         return self._process
-
