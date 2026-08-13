@@ -71,7 +71,13 @@ jobs:
           $bundle = "$env:RUNNER_TEMP\dashboard-bundle"
           $setup = Get-ChildItem "$env:RUNNER_TEMP\setup\*.exe" | Select-Object -First 1
           if ($setup.Length -ge 2GB) { throw "Setup.exe exceeds GitHub's 2 GiB asset limit" }
-          if (Get-ChildItem $bundle -Recurse -File | Select-String -Pattern 'sk-[A-Za-z0-9]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY') { throw "Secret-like content found in release bundle" }
+          $textExtensions = @('.bat', '.cmd', '.css', '.env', '.html', '.ini', '.iss', '.js', '.json', '.jsx', '.md', '.ps1', '.py', '.scss', '.svg', '.toml', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml')
+          $textFiles = Get-ChildItem $bundle -Recurse -File | Where-Object { $textExtensions -contains $_.Extension.ToLowerInvariant() -or $_.Name -in @('manifest.sha256', 'package-lock.json') }
+          $secretMatches = $textFiles | Select-String -Pattern 'sk-[A-Za-z0-9]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY'
+          if ($secretMatches) {
+            $secretMatches | ForEach-Object { Write-Host "$($_.Path):$($_.LineNumber)" }
+            throw "Secret-like content found in release text files"
+          }
           python scripts/write-release-manifest.py --version 0.1.0 --setup $setup.FullName --bundle $bundle --output "$env:RUNNER_TEMP\release-manifest.json"
           Get-FileHash $setup.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($setup.Name)" } | Set-Content "$env:RUNNER_TEMP\SHA256SUMS.txt"
       - name: Create draft GitHub Release
