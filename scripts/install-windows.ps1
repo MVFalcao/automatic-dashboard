@@ -49,9 +49,20 @@ if (-not (Test-Path (Join-Path $Source "pyproject.toml"))) { Fail "Source direct
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 if (-not $NoCopy -and ((Resolve-Path $Source).Path -ne (Resolve-Path $InstallDir).Path)) {
-    $excludeDirectories = @(".git", ".venv", ".hermes-runtime", ".playwright", "reports", "data") | ForEach-Object { Join-Path $Source $_ }
+    $excludeDirectories = @(
+        ".git",
+        ".venv",
+        ".hermes-runtime",
+        ".playwright",
+        "reports",
+        "data",
+        "dashboard\web\node_modules",
+        "dashboard\web\.next"
+    ) | ForEach-Object { Join-Path $Source $_ }
+    Write-Host "Copying application files to $InstallDir..."
     & robocopy $Source $InstallDir /E /XD $excludeDirectories /XF (Join-Path $Source "private_source_dashboard.xlsx") | Out-Null
     if ($LASTEXITCODE -gt 7) { Fail "Unable to copy application files (robocopy code $LASTEXITCODE)." }
+    Write-Host "Application files copied."
 }
 if ($BundleDir) {
     New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "runtime") | Out-Null
@@ -82,12 +93,12 @@ if ($BundleDir) {
 if ($BundleDir) {
     & $python -m venv $hermes
     $hermesPython = Join-Path $hermes "Scripts\python.exe"
-    & $hermesPython -m pip install --no-index --find-links (Join-Path $BundleDir "hermes-wheels") "hermes-agent==0.13.0"
+    & $hermesPython -m pip install --no-index --find-links (Join-Path $BundleDir "hermes-wheels") "hermes-agent==0.13.0" "aiohttp==3.13.3"
 } else {
     & $python -m venv $hermes
     $hermesPython = Join-Path $hermes "Scripts\python.exe"
     & $hermesPython -m pip install --upgrade pip
-    & $hermesPython -m pip install --upgrade "hermes-agent==0.13.0"
+    & $hermesPython -m pip install --upgrade "hermes-agent==0.13.0" "aiohttp==3.13.3"
 }
 if (-not $BundleDir -and -not $SkipBuild) {
     Push-Location (Join-Path $InstallDir "dashboard\web")
@@ -129,6 +140,7 @@ $firstRun = Join-Path $InstallDir "dashboard-first-run.ps1"
 & '$venvPython' -m automation.release.first_run --root '$InstallDir' --runtime '$hermes' --node '$node' --browser-path '$playwright' `$args
 "@ | Set-Content -Encoding UTF8 $firstRun
 $start = Join-Path $InstallDir "dashboard-start.ps1"
+$hermesExecutable = Join-Path $hermes "Scripts\hermes.exe"
 @"
 `$ErrorActionPreference = 'Stop'
 `$env:PLAYWRIGHT_BROWSERS_PATH = '$playwright'
@@ -136,13 +148,19 @@ $start = Join-Path $InstallDir "dashboard-start.ps1"
 `$env:DASHBOARD_ALLOWED_ORIGINS = 'http://127.0.0.1:3000'
 `$env:DASHBOARD_LOCAL_AUTH_TOKEN = (& '$venvPython' -c "import secrets; print(secrets.token_urlsafe(32))").Trim()
 `$env:DASHBOARD_HERMES_RUNTIME = '$hermes'
+`$env:DASHBOARD_HERMES_HOME = '$InstallDir\.hermes-data'
 `$env:DASHBOARD_API_ORIGIN = 'http://127.0.0.1:8000'
 `$api = Start-Process -FilePath '$venvPython' -ArgumentList '-m','uvicorn','dashboard.api.main:app','--host','127.0.0.1','--port','8000' -WorkingDirectory '$InstallDir' -PassThru
 try {
   Push-Location '$InstallDir\dashboard\web'
   if (Test-Path '.next\standalone\server.js') { `$env:HOSTNAME='127.0.0.1'; `$env:PORT='3000'; & '$node' '.next\standalone\server.js' }
   else { npm run start -- -H 127.0.0.1 -p 3000 }
-} finally { Pop-Location; Stop-Process -Id `$api.Id -Force -ErrorAction SilentlyContinue }
+} finally {
+  Pop-Location
+  Stop-Process -Id `$api.Id -Force -ErrorAction SilentlyContinue
+  `$env:HERMES_HOME = '$InstallDir\.hermes-data'
+  & '$hermesExecutable' gateway stop | Out-Null
+}
 "@ | Set-Content -Encoding UTF8 $start
 
 Write-Host "Installed Universal Dashboard Agent in $InstallDir"

@@ -84,11 +84,11 @@ elif [[ "$SKIP_BROWSER" -eq 0 ]]; then
 fi
 if [[ -n "$BUNDLE_DIR" ]]; then
   "$PYTHON" -m venv "$HERMES_ENV"
-  "$HERMES_ENV/bin/python" -m pip install --no-index --find-links "$BUNDLE_DIR/hermes-wheels" 'hermes-agent==0.13.0'
+  "$HERMES_ENV/bin/python" -m pip install --no-index --find-links "$BUNDLE_DIR/hermes-wheels" 'hermes-agent==0.13.0' 'aiohttp==3.13.3'
 else
   "$PYTHON" -m venv "$HERMES_ENV"
   "$HERMES_ENV/bin/python" -m pip install --upgrade pip
-  "$HERMES_ENV/bin/python" -m pip install --upgrade 'hermes-agent==0.13.0'
+  "$HERMES_ENV/bin/python" -m pip install --upgrade 'hermes-agent==0.13.0' 'aiohttp==3.13.3'
 fi
 if [[ -z "$BUNDLE_DIR" && "$SKIP_BUILD" -eq 0 ]]; then
   (cd "$INSTALL_DIR/dashboard/web" && npm ci && npm run build)

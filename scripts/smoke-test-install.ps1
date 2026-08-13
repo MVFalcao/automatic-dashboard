@@ -12,6 +12,8 @@ if (-not (Test-Path $node)) { $node = (Get-Command node).Source }
 $env:DASHBOARD_ENFORCE_LOCAL_SECURITY = "true"
 $env:DASHBOARD_LOCAL_AUTH_TOKEN = (& $python -c "import secrets; print(secrets.token_urlsafe(32))").Trim()
 $env:DASHBOARD_HERMES_RUNTIME = Join-Path $InstallDir ".hermes-runtime"
+$env:DASHBOARD_HERMES_HOME = Join-Path $InstallDir ".hermes-data"
+$env:HERMES_HOME = $env:DASHBOARD_HERMES_HOME
 $env:DASHBOARD_ALLOWED_ORIGINS = "http://127.0.0.1:$WebPort"
 $env:DASHBOARD_API_ORIGIN = "http://127.0.0.1:$Port"
 
@@ -48,4 +50,6 @@ try {
 } finally {
     if ($web) { Stop-Process -Id $web.Id -Force -ErrorAction SilentlyContinue }
     if ($api) { Stop-Process -Id $api.Id -Force -ErrorAction SilentlyContinue }
+    $hermes = Join-Path $env:DASHBOARD_HERMES_RUNTIME "Scripts\hermes.exe"
+    if (Test-Path $hermes) { & $hermes gateway stop | Out-Null }
 }

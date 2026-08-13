@@ -77,6 +77,7 @@ def test_installers_are_user_scoped_and_loopback_only() -> None:
     for installer in (linux, windows):
         assert "127.0.0.1" in installer
         assert "hermes-agent==0.13.0" in installer
+        assert "aiohttp==3.13.3" in installer
         assert "playwright" in installer.casefold()
     assert "\nsudo " not in linux
     assert 'runtime/node/bin/node' in linux
@@ -85,7 +86,10 @@ def test_installers_are_user_scoped_and_loopback_only() -> None:
     assert "--exclude=./reports" in linux
     assert "--exclude=reports" not in linux
     assert "robocopy" in windows
+    assert '"dashboard\\web\\node_modules"' in windows
+    assert '"dashboard\\web\\.next"' in windows
     assert 'Join-Path $Source $_' in windows
+    assert "gateway stop" in windows
     assert "--browser-path '$playwright'" in windows
     assert "--node '$node'" in windows
 

@@ -23,7 +23,12 @@ from automation.agent.models import (
     TokenEstimate,
 )
 from automation.agent.routing import ProviderRouter, ProviderUnavailableError, setup_instructions
-from automation.agent.runtime import HERMES_VERSION, HermesRuntime, HermesRuntimeSpec
+from automation.agent.runtime import (
+    HERMES_GATEWAY_DEPENDENCY,
+    HERMES_VERSION,
+    HermesRuntime,
+    HermesRuntimeSpec,
+)
 from automation.agent.validation import StructuredResponseError, StructuredResponseValidator
 from dashboard.api.main import app
 
@@ -107,7 +112,13 @@ def test_gateway_requires_loopback_and_keeps_key_out_of_command() -> None:
     store.put(reference, "super-secret")
     gateway = HermesGateway(store)
     config = GatewayConfig(api_key_reference=reference, cors_origins=("http://127.0.0.1:3000",))
-    assert gateway.start(config, "/private/hermes", dry_run=True) == ["/private/hermes", "gateway"]
+    assert gateway.start(config, "/private/hermes", dry_run=True) == [
+        "/private/hermes",
+        "gateway",
+        "run",
+        "--quiet",
+        "--replace",
+    ]
     for invalid in (
         "http://127.0.0.1.evil.test:8642",
         "https://127.0.0.1:8642",
@@ -145,13 +156,15 @@ def test_runtime_is_pinned_and_uses_managed_executable(tmp_path: Path) -> None:
     runtime = HermesRuntime(HermesRuntimeSpec(environment_dir=tmp_path / "hermes"))
     assert HERMES_VERSION
     assert runtime.spec.requirement == f"hermes-agent=={HERMES_VERSION}"
-    assert runtime.gateway_command()[-1] == "gateway"
+    assert HERMES_GATEWAY_DEPENDENCY in runtime.install_command()
+    assert runtime.gateway_command()[-4:] == ["gateway", "run", "--quiet", "--replace"]
     assert str(tmp_path / "hermes") in runtime.gateway_command()[0]
 
 
 def test_provider_setup_flows_are_documented_and_secret_free() -> None:
     codex = setup_instructions(ProviderName.CODEX)
     assert codex.oauth_command == ["hermes", "auth", "add", "openai-codex"]
+    assert codex.setup_command == ["hermes", "model"]
     assert "secret" not in codex.model_dump_json().lower()
     gemini = setup_instructions(ProviderName.GEMINI)
     assert gemini.api_key_environment_variable == "GEMINI_API_KEY"

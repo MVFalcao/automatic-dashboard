@@ -44,8 +44,12 @@ def main() -> int:
     print("\nConnect an AI provider through the managed Hermes runtime (no secrets are stored in project files):")
     for provider in ProviderName:
         instructions = setup_instructions(provider)
-        command = " ".join(instructions.oauth_command or ["Set the provider key in the OS credential store"])
-        print(f"- {provider.value}: {command}")
+        auth_command = " ".join(instructions.oauth_command or ["Set the provider key in the OS credential store"])
+        model_command = " ".join(instructions.setup_command)
+        print(
+            f"- {provider.value}: authenticate with `{auth_command}`, "
+            f"then select the provider/model with `{model_command}`"
+        )
     print("\nAfter login, open http://127.0.0.1:3000 in your browser.")
     return 0 if report.ok else 1
 

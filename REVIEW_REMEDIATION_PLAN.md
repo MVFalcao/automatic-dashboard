@@ -71,12 +71,20 @@ disabled afterward, and a sampled source value did not appear in project or
 SQLite metadata. That run exposed and fixed configured API query loss and a
 first-run diagnostic that selected system Node instead of the bundled runtime.
 
-This remains a release candidate rather than a complete certification only
-because no supported provider login is configured in the acceptance
-environment and its OS keyring backend is unavailable. Hermes discovered a
-GitHub CLI-derived Copilot credential, but Copilot is not an approved product
-provider and the credential was not repurposed. A Claude, Codex, Gemini, or
-DeepSeek login through Hermes plus an authenticated gateway task remains the
-final acceptance requirement. The independent review found and fixed the
-Hermes subprocess-output risk, with no other open P0/P1 finding in the reviewed
-diff.
+On 2026-08-13 the remaining provider acceptance gate passed on Windows using
+the native credential manager and an explicitly connected OpenAI Codex OAuth
+account. The managed Hermes gateway bound to loopback, rejected an
+unauthenticated `/v1/chat/completions` request, completed an authenticated
+synthetic structured task with `gpt-5.5`, returned validated JSON, and reported
+usage. Temporary gateway credentials were removed after each attempt and no
+provider token was printed or copied into the project.
+
+The authenticated run exposed and fixed Hermes 0.13 runtime-contract gaps: the
+gateway now starts with `hermes gateway run`, the required API-server
+`aiohttp==3.13.3` adapter is pinned in online and offline installations, and
+first-run guidance includes provider/model selection after authentication. It
+also exposed an oversized WSL-to-Windows source copy; Windows installation now
+excludes generated `node_modules` and `.next` trees. The final provider
+acceptance requirement is satisfied. The independent review found and fixed
+the Hermes subprocess-output risk, with no other open P0/P1 finding in the
+reviewed diff.

@@ -99,7 +99,17 @@ def main() -> int:
     hermes_wheels = output / "hermes-wheels"
     hermes_wheels.mkdir()
     subprocess.run(
-        [str(hermes_python), "-m", "pip", "wheel", "hermes-agent==0.13.0", "--wheel-dir", str(hermes_wheels), "--disable-pip-version-check"],
+        [
+            str(hermes_python),
+            "-m",
+            "pip",
+            "wheel",
+            "hermes-agent==0.13.0",
+            "aiohttp==3.13.3",
+            "--wheel-dir",
+            str(hermes_wheels),
+            "--disable-pip-version-check",
+        ],
         check=True,
     )
     manifest: list[str] = []
