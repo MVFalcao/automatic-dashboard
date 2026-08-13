@@ -18,12 +18,31 @@ type Document = {
 type Approval = { approval_id: string; sections: Record<string, { section_id: string; status: "pending" | "approved" | "rejected" | "blocked"; depends_on: string[] }>; ready_to_activate: boolean };
 type Workspace = { document: Document; approval: Approval; project_id: string | null };
 type Draft = { version: number; accent_color: string; chart_type: ChartKind; section_order: string[]; terminology: Record<string, string>; feedback_applied_by_hermes: boolean };
+type Diagnostics = { diagnostic_id: string; ok: boolean; components: Record<string, { ok: boolean; remediation: string | null }> };
 type Props = { language: Language; sessionId: string; context: Record<string, string> };
 
 const labels = {
-  en: { title: "Synthetic dashboard review", notice: "All values are invented. The server generated this document; approvals apply to every selected output.", approve: "Approve section", revise: "Request revision", feedback: "Describe the change", feedbackSafe: "This feedback is non-confidential and may be sent to Hermes", apply: "Ask Hermes", save: "Save controls as draft", activate: "Create project and activate approved specification", saved: "Project saved and ready for source setup.", color: "Accent color", chart: "Chart type", approved: "Approved", pending: "Pending review", rejected: "Revision requested", blocked: "Blocked by dependency", runtime: "Hermes runtime", loading: "Loading the server-generated preview…", retry: "Try again", draft: "Draft", noMutation: "The active approved specification is unchanged.", error: "The preview could not be loaded.", guidance: "Check that the local API and Hermes runtime are running, then retry." },
-  pt: { title: "Revisão sintética do dashboard", notice: "Todos os valores são inventados. O servidor gerou este documento; as aprovações valem para todas as saídas.", approve: "Aprovar seção", revise: "Solicitar revisão", feedback: "Descreva a alteração", feedbackSafe: "Este feedback não é confidencial e pode ser enviado ao Hermes", apply: "Pedir ao Hermes", save: "Salvar controles como rascunho", activate: "Criar projeto e ativar especificação aprovada", saved: "Projeto salvo e pronto para configurar a fonte.", color: "Cor de destaque", chart: "Tipo de gráfico", approved: "Aprovado", pending: "Aguardando revisão", rejected: "Revisão solicitada", blocked: "Bloqueado por dependência", runtime: "Runtime Hermes", loading: "Carregando a prévia gerada pelo servidor…", retry: "Tentar novamente", draft: "Rascunho", noMutation: "A especificação ativa aprovada não foi alterada.", error: "Não foi possível carregar a prévia.", guidance: "Verifique se a API local e o Hermes estão ativos e tente novamente." },
+  en: { title: "Synthetic dashboard review", notice: "All values are invented. The server generated this document; approvals apply to every selected output.", approve: "Approve section", revise: "Request revision", feedback: "Describe the change", feedbackSafe: "This feedback is non-confidential and may be sent to Hermes", apply: "Ask Hermes", save: "Save controls as draft", activate: "Create project and activate approved specification", saved: "Project saved and ready for source setup.", color: "Accent color", chart: "Chart type", approved: "Approved", pending: "Pending review", rejected: "Revision requested", blocked: "Blocked by dependency", runtime: "Hermes runtime", loading: "Loading the server-generated preview…", retry: "Try again", draft: "Draft", noMutation: "The active approved specification is unchanged.", error: "The preview could not be loaded.", guidance: "Check that the local API and Hermes runtime are running, then retry.", pathError: "Enter an absolute local project path, such as C:\\Users\\Name\\Documents\\DashboardProject.", diagnostics: "Diagnostics", downloadSupport: "Download sanitized support bundle" },
+  pt: { title: "Revisão sintética do dashboard", notice: "Todos os valores são inventados. O servidor gerou este documento; as aprovações valem para todas as saídas.", approve: "Aprovar seção", revise: "Solicitar revisão", feedback: "Descreva a alteração", feedbackSafe: "Este feedback não é confidencial e pode ser enviado ao Hermes", apply: "Pedir ao Hermes", save: "Salvar controles como rascunho", activate: "Criar projeto e ativar especificação aprovada", saved: "Projeto salvo e pronto para configurar a fonte.", color: "Cor de destaque", chart: "Tipo de gráfico", approved: "Aprovado", pending: "Aguardando revisão", rejected: "Revisão solicitada", blocked: "Bloqueado por dependência", runtime: "Runtime Hermes", loading: "Carregando a prévia gerada pelo servidor…", retry: "Tentar novamente", draft: "Rascunho", noMutation: "A especificação ativa aprovada não foi alterada.", error: "Não foi possível carregar a prévia.", guidance: "Verifique se a API local e o Hermes estão ativos e tente novamente.", pathError: "Informe um caminho local absoluto, como C:\\Users\\Nome\\Documents\\ProjetoDashboard.", diagnostics: "Diagnósticos", downloadSupport: "Baixar pacote de suporte sanitizado" },
 };
+
+function problemMessage(problem: unknown, fallback: string): string {
+  if (!problem || typeof problem !== "object") return fallback;
+  const detail = (problem as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object") {
+    const structured = detail as { message?: unknown; fields?: Array<{ field?: string; message?: string }> };
+    if (structured.fields?.length) return structured.fields.map((item) => `${item.field ?? "request"}: ${item.message ?? fallback}`).join(" · ");
+    if (typeof structured.message === "string") return structured.message;
+  }
+  if (Array.isArray(detail)) return detail.map((item) => typeof item === "object" && item ? String((item as { msg?: unknown }).msg ?? fallback) : fallback).join(" · ");
+  return fallback;
+}
+
+function isAbsoluteLocalPath(value: string): boolean {
+  const path = value.trim();
+  return !/^https?:\/\//i.test(path) && (/^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path) || path.startsWith("/"));
+}
 
 function Chart({ document, color, kind, section }: { document: Document; color: string; kind: ChartKind; section: Section }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -56,12 +75,13 @@ export default function DashboardReview({ language, sessionId, context }: Props)
   const t = labels[language];
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [color, setColor] = useState("#23543c");
+  const [color, setColor] = useState("#1D4ED8");
   const [kind, setKind] = useState<ChartKind>("bar");
   const [order, setOrder] = useState<string[]>([]);
   const [feedback, setFeedback] = useState("");
   const [feedbackSafe, setFeedbackSafe] = useState(false);
   const [runtime, setRuntime] = useState<Record<string, unknown>>({ ready: false });
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -70,10 +90,11 @@ export default function DashboardReview({ language, sessionId, context }: Props)
   const load = async () => {
     setError("");
     try {
-      const [previewResponse, draftResponse, runtimeResponse] = await Promise.all([
+      const [previewResponse, draftResponse, runtimeResponse, diagnosticsResponse] = await Promise.all([
         fetch(`/backend/api/intake/${sessionId}/preview`, { cache: "no-store" }),
         fetch(`/backend/api/intake/${sessionId}/draft`, { cache: "no-store" }),
         fetch("/backend/api/hermes/status", { cache: "no-store" }),
+        fetch("/backend/api/diagnostics", { cache: "no-store" }),
       ]);
       if (!previewResponse.ok) throw new Error("preview");
       const preview = await previewResponse.json() as Workspace;
@@ -81,9 +102,10 @@ export default function DashboardReview({ language, sessionId, context }: Props)
       setProjectId(preview.project_id);
       const saved = draftResponse.ok ? await draftResponse.json() as Draft | null : null;
       setDraft(saved);
-      setColor(saved?.accent_color ?? "#23543c"); setKind(saved?.chart_type ?? "bar");
+      setColor(saved?.accent_color ?? "#1D4ED8"); setKind(saved?.chart_type ?? "bar");
       setOrder(saved?.section_order ?? [...preview.document.specification.sections].sort((a, b) => a.order - b.order).map((item) => item.id));
       setRuntime(runtimeResponse.ok ? await runtimeResponse.json() : { ready: false });
+      setDiagnostics(diagnosticsResponse.ok ? await diagnosticsResponse.json() as Diagnostics : null);
     } catch { setError(`${t.error} ${t.guidance}`); }
   };
   useEffect(() => { void load(); }, [sessionId]);
@@ -107,7 +129,7 @@ export default function DashboardReview({ language, sessionId, context }: Props)
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accent_color: color, chart_type: kind, section_order: order, terminology: draft?.terminology ?? {}, feedback: naturalLanguage ? feedback : null, feedback_non_confidential: naturalLanguage && feedbackSafe }),
       });
-      if (!response.ok) { const problem = await response.json(); throw new Error(problem.detail ?? t.guidance); }
+      if (!response.ok) { const problem = await response.json(); throw new Error(problemMessage(problem, t.guidance)); }
       const next = await response.json() as Draft; setDraft(next); setFeedback(""); setFeedbackSafe(false);
       setColor(next.accent_color); setKind(next.chart_type); setOrder(next.section_order);
       await load();
@@ -116,6 +138,7 @@ export default function DashboardReview({ language, sessionId, context }: Props)
   const activate = async () => {
     const directory = context.project_location;
     if (!workspace || !directory) { setError(t.guidance); return; }
+    if (!isAbsoluteLocalPath(directory)) { setError(t.pathError); return; }
     setBusy(true); setError("");
     try {
       const identifier = crypto.randomUUID();
@@ -127,16 +150,16 @@ export default function DashboardReview({ language, sessionId, context }: Props)
           non_confidential_confirmed: true,
         }),
       });
-      if (!created.ok) { const problem = await created.json(); throw new Error(problem.detail ?? t.guidance); }
+      if (!created.ok) { const problem = await created.json(); throw new Error(problemMessage(problem, t.guidance)); }
       const approved = await fetch(`/backend/api/projects/${identifier}/specifications`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ specification: workspace.document.specification, approval_id: workspace.approval.approval_id, approved_by: "local-user", confirmed_non_confidential: true }),
       });
-      if (!approved.ok) { const problem = await approved.json(); throw new Error(problem.detail ?? t.guidance); }
+      if (!approved.ok) { const problem = await approved.json(); throw new Error(problemMessage(problem, t.guidance)); }
       const linked = await fetch(`/backend/api/intake/${sessionId}/project-link`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: identifier }),
       });
-      if (!linked.ok) { const problem = await linked.json(); throw new Error(problem.detail ?? t.guidance); }
+      if (!linked.ok) { const problem = await linked.json(); throw new Error(problemMessage(problem, t.guidance)); }
       setProjectId(identifier);
     } catch (problem) { setError(problem instanceof Error ? problem.message : t.guidance); } finally { setBusy(false); }
   };
@@ -144,6 +167,13 @@ export default function DashboardReview({ language, sessionId, context }: Props)
     const source = current.indexOf(id); const target = source + offset; if (target < 0 || target >= current.length) return current;
     const next = [...current]; [next[source], next[target]] = [next[target], next[source]]; return next;
   });
+  const downloadSupport = async () => {
+    const response = await fetch("/backend/api/diagnostics/support-bundle", { method: "POST" });
+    if (!response.ok) { setError(t.guidance); return; }
+    const blob = await response.blob(); const url = URL.createObjectURL(blob);
+    const link = window.document.createElement("a"); link.href = url; link.download = `dashboard-support-${response.headers.get("X-Diagnostic-Id") ?? "local"}.zip`; link.click();
+    URL.revokeObjectURL(url);
+  };
   const sectionsById = useMemo(() => Object.fromEntries((workspace?.document.specification.sections ?? []).map((item) => [item.id, item])), [workspace]);
 
   if (!workspace) return <main className="shell"><section className="panel"><h1>{t.title}</h1><p>{error || t.loading}</p>{error && <button onClick={() => void load()}>{t.retry}</button>}</section></main>;
@@ -155,6 +185,7 @@ export default function DashboardReview({ language, sessionId, context }: Props)
     <aside className="review-sidebar">
       <p className="eyebrow">Dashboard Agent</p><h1>{t.title}</h1><p>{t.notice}</p>
       <p className={`runtime-status ${runtime.ready ? "approved" : "revision"}`}>{t.runtime}: {runtime.ready ? "ready" : "unavailable"}</p>
+      <details className="review-diagnostics"><summary>{t.diagnostics}</summary>{diagnostics && Object.entries(diagnostics.components).map(([name, component]) => <p key={name}>{name}: {component.ok ? "OK" : component.remediation}</p>)}<button onClick={() => void downloadSupport()}>{t.downloadSupport}</button></details>
       {draft && <p>{t.draft} v{draft.version}. {t.noMutation}</p>}
       <dl>{Object.entries(context).slice(0, 3).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>)}</dl>
       <label>{t.color}<input type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>

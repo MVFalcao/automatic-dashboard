@@ -51,6 +51,11 @@ class CodexOAuthStatus(BaseModel):
     user_code: str | None = None
     expires_in: int = Field(ge=0)
     error: str | None = None
+    recoverable: bool = False
+    remediation: str | None = None
+    provider: str = "openai-codex"
+    model: str = "gpt-5.5"
+    compatible: bool = False
 
 
 router = APIRouter(prefix="/api", tags=["hermes"])
@@ -188,4 +193,7 @@ def hermes_status() -> dict:
     status = managed_hermes.status()
     status["provider_count"] = len(provider_registry.list())
     status["provider_ready"] = any(item.connected for item in provider_registry.list())
+    codex = next((item for item in provider_registry.list() if item.provider is ProviderName.CODEX), None)
+    status["codex_compatible"] = codex is None or (codex.model == "gpt-5.5" and codex.connected)
+    status["codex_model"] = codex.model if codex else None
     return status

@@ -6,17 +6,28 @@ type Props = { language: "en" | "pt"; projectId: string; projectDirectory: strin
 type Field = { id: string; label: string };
 type Inspection = { id: string; inspection: { fields: Array<{ path: string; name: string; type: string }>; mappings: Array<{ source_path: string; target_field: string | null }> } };
 type ImportInspection = { id: string; plan: { mappings: Array<{ source_column: string; target_field: string | null }>; sources: Array<{ columns: string[]; likely_confidential_columns: string[] }> } };
-type CodexOAuthStatus = { session_id: string; project_id: string; status: string; verification_url: string | null; user_code: string | null; expires_in: number; error: string | null };
+type CodexOAuthStatus = { session_id: string; project_id: string; status: string; verification_url: string | null; user_code: string | null; expires_in: number; error: string | null; recoverable: boolean; remediation: string | null; provider: string; model: string; compatible: boolean };
+type Diagnostics = { diagnostic_id: string; ok: boolean; components: Record<string, { ok: boolean; remediation: string | null }>; checks: Array<{ name: string; ok: boolean; detail: string; remediation: string | null }> };
 
 const copy = {
-  en: { title: "Project operations", source: "JSON API source", inspect: "Save and inspect source", approve: "Approve mappings and classifications", sync: "Synchronize now", endpoint: "HTTPS endpoint", sample: "Representative JSON", importing: "CSV/XLSX import", path: "Local file or folder", inspectImport: "Inspect import", approveImport: "Approve import summary", applyImport: "Apply approved import", provider: "Provider setup", key: "API key (sent directly to the OS keyring)", connect: "Connect provider", codex: "Connect Codex with browser login", code: "Verification code", cancel: "Cancel login", reports: "Reports", destination: "Approved local output folder", generate: "Generate selected reports", schedule: "Local schedule", preview: "Preview schedule", activate: "Activate schedule explicitly", history: "Refresh run history", safe: "I confirm the project and source are non-confidential", status: "Status", formats: "Imports support CSV and XLSX. Reports support web, Excel, and PDF.", error: "The operation failed. Review the guidance and try again." },
-  pt: { title: "Operações do projeto", source: "Fonte de API JSON", inspect: "Salvar e inspecionar fonte", approve: "Aprovar mapeamentos e classificações", sync: "Sincronizar agora", endpoint: "Endpoint HTTPS", sample: "JSON representativo", importing: "Importação CSV/XLSX", path: "Arquivo ou pasta local", inspectImport: "Inspecionar importação", approveImport: "Aprovar resumo da importação", applyImport: "Aplicar importação aprovada", provider: "Configuração de provedor", key: "Chave de API (enviada diretamente ao cofre do sistema)", connect: "Conectar provedor", codex: "Conectar Codex pelo navegador", code: "Código de verificação", cancel: "Cancelar login", reports: "Relatórios", destination: "Pasta local aprovada para saída", generate: "Gerar relatórios selecionados", schedule: "Agendamento local", preview: "Visualizar agenda", activate: "Ativar agenda explicitamente", history: "Atualizar histórico", safe: "Confirmo que o projeto e a fonte não são confidenciais", status: "Status", formats: "Importações aceitam CSV e XLSX. Relatórios aceitam web, Excel e PDF.", error: "A operação falhou. Revise a orientação e tente novamente." },
+  en: { title: "Project operations", source: "JSON API source", inspect: "Save and inspect source", approve: "Approve mappings and classifications", sync: "Synchronize now", endpoint: "HTTPS endpoint", sample: "Representative JSON", importing: "CSV/XLSX import", path: "Local file or folder", inspectImport: "Inspect import", approveImport: "Approve import summary", applyImport: "Apply approved import", provider: "Provider setup", key: "API key (sent directly to the OS keyring)", connect: "Connect provider", codex: "Connect Codex with browser login", retryCodex: "Retry Codex login", code: "Verification code", cancel: "Cancel login", reports: "Reports", destination: "Approved local output folder", generate: "Generate selected reports", schedule: "Local schedule", preview: "Preview schedule", activate: "Activate schedule explicitly", history: "Refresh run history", safe: "I confirm the project and source are non-confidential", status: "Status", formats: "Imports support CSV and XLSX. Reports support web, Excel, and PDF.", error: "The operation failed. Review the guidance and try again.", diagnostics: "Diagnostics", refreshDiagnostics: "Refresh diagnostics", downloadSupport: "Download sanitized support bundle", copyDiagnostic: "Copy diagnostic ID" },
+  pt: { title: "Operações do projeto", source: "Fonte de API JSON", inspect: "Salvar e inspecionar fonte", approve: "Aprovar mapeamentos e classificações", sync: "Sincronizar agora", endpoint: "Endpoint HTTPS", sample: "JSON representativo", importing: "Importação CSV/XLSX", path: "Arquivo ou pasta local", inspectImport: "Inspecionar importação", approveImport: "Aprovar resumo da importação", applyImport: "Aplicar importação aprovada", provider: "Configuração de provedor", key: "Chave de API (enviada diretamente ao cofre do sistema)", connect: "Conectar provedor", codex: "Conectar Codex pelo navegador", retryCodex: "Tentar login do Codex novamente", code: "Código de verificação", cancel: "Cancelar login", reports: "Relatórios", destination: "Pasta local aprovada para saída", generate: "Gerar relatórios selecionados", schedule: "Agendamento local", preview: "Visualizar agenda", activate: "Ativar agenda explicitamente", history: "Atualizar histórico", safe: "Confirmo que o projeto e a fonte não são confidenciais", status: "Status", formats: "Importações aceitam CSV e XLSX. Relatórios aceitam web, Excel e PDF.", error: "A operação falhou. Revise a orientação e tente novamente.", diagnostics: "Diagnósticos", refreshDiagnostics: "Atualizar diagnósticos", downloadSupport: "Baixar pacote de suporte sanitizado", copyDiagnostic: "Copiar ID do diagnóstico" },
 };
+
+function errorDetail(value: unknown, fallback: string): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const detail = value as { message?: string; fields?: Array<{ field?: string; message?: string }> };
+    if (detail.fields?.length) return detail.fields.map((item) => `${item.field ?? "request"}: ${item.message ?? fallback}`).join(" · ");
+    if (detail.message) return detail.message;
+  }
+  return fallback;
+}
 
 async function request(path: string, init?: RequestInit) {
   const response = await fetch(`/backend${path}`, { ...init, cache: "no-store" });
   const value = response.status === 204 ? null : await response.json();
-  if (!response.ok) throw new Error(value?.detail ?? `HTTP ${response.status}`);
+  if (!response.ok) throw new Error(errorDetail(value?.detail, `HTTP ${response.status}`));
   return value;
 }
 
@@ -36,6 +47,7 @@ export default function ProjectOperations({ language, projectId, projectDirector
   const [nonConfidential, setNonConfidential] = useState(false);
   const [scheduleId, setScheduleId] = useState("");
   const [history, setHistory] = useState<object | null>(null);
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [status, setStatus] = useState(t.formats);
   const [busy, setBusy] = useState(false);
 
@@ -78,14 +90,16 @@ export default function ProjectOperations({ language, projectId, projectDirector
   });
   const connectCodex = () => run(async () => {
     const popup = window.open("about:blank", "codex-oauth", "noopener,noreferrer");
+    let openedVerification = false;
     let current = await request("/api/providers/oauth/codex/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: projectId }) }) as CodexOAuthStatus;
     setCodexOAuth(current);
-    if (current.verification_url) { if (popup) popup.location.href = current.verification_url; else window.open(current.verification_url, "_blank", "noopener,noreferrer"); }
     while (current.status === "pending" && current.expires_in > 0) {
+      if (current.verification_url && !openedVerification) { if (popup) popup.location.href = current.verification_url; else window.open(current.verification_url, "_blank", "noopener,noreferrer"); openedVerification = true; }
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       current = await request(`/api/providers/oauth/codex/${current.session_id}`) as CodexOAuthStatus;
       setCodexOAuth(current);
     }
+    if (current.verification_url && !openedVerification) { if (popup) popup.location.href = current.verification_url; else window.open(current.verification_url, "_blank", "noopener,noreferrer"); }
     if (current.status !== "connected") throw new Error(current.error ?? `Codex login ${current.status}`);
     return current;
   });
@@ -104,13 +118,22 @@ export default function ProjectOperations({ language, projectId, projectDirector
     try { await request("/api/schedules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, project_id: projectId, project_directory: projectDirectory, name: "Daily reports", frequency: "daily", timezone: "America/Sao_Paulo", hour: 9, minute: 0, output_directory: destination, outputs, retention_limit: 10, project_non_confidential_confirmed: true, source_non_confidential_confirmed: true, approval_confirmed: false, enabled: false }) }); } catch { /* an existing definition is activated below */ }
     const value = await request(`/api/schedules/${id}/activate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved_by: "local-user" }) }); setScheduleId(id); return value;
   });
+  const refreshDiagnostics = () => run(async () => { const value = await request("/api/diagnostics") as Diagnostics; setDiagnostics(value); return value; });
+  const downloadSupport = () => run(async () => {
+    const response = await fetch("/backend/api/diagnostics/support-bundle", { method: "POST" });
+    if (!response.ok) throw new Error(t.error);
+    const blob = await response.blob(); const url = URL.createObjectURL(blob);
+    const link = document.createElement("a"); link.href = url; link.download = `dashboard-support-${response.headers.get("X-Diagnostic-Id") ?? "local"}.zip`; link.click();
+    URL.revokeObjectURL(url); return t.downloadSupport;
+  });
 
   return <section className="operations" aria-labelledby="operations-title"><h2 id="operations-title">{t.title}</h2><p>{t.formats}</p>
     <details open><summary>{t.source}</summary><label>{t.endpoint}<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://api.example.com/records" /></label><label>{t.sample}<textarea value={sample} onChange={(event) => setSample(event.target.value)} rows={4} /></label><button disabled={busy || !endpoint} onClick={saveAndInspect}>{t.inspect}</button><button disabled={busy || !inspection} onClick={approveSource}>{t.approve}</button><button disabled={busy || !approvalId} onClick={sync}>{t.sync}</button></details>
     <details><summary>{t.importing}</summary><label>{t.path}<input value={importPath} onChange={(event) => setImportPath(event.target.value)} /></label><button disabled={busy || !importPath} onClick={inspectImport}>{t.inspectImport}</button><button disabled={busy || !importSummary} onClick={approveImport}>{t.approveImport}</button><button disabled={busy || !importApprovalId} onClick={applyImport}>{t.applyImport}</button>{importSummary && <pre>{JSON.stringify(importSummary, null, 2)}</pre>}</details>
-    <details><summary>{t.provider}</summary><button disabled={busy} onClick={connectCodex}>{t.codex}</button>{codexOAuth && <div aria-live="polite"><p>{codexOAuth.status}</p>{codexOAuth.user_code && <p>{t.code}: <code>{codexOAuth.user_code}</code></p>}{codexOAuth.status === "pending" && <button disabled={busy} onClick={cancelCodex}>{t.cancel}</button>}</div>}<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="claude">Claude</option><option value="gemini">Gemini</option><option value="deepseek">DeepSeek</option></select><label>{t.key}<input type="password" value={apiKey} autoComplete="off" onChange={(event) => setApiKey(event.target.value)} /></label><button disabled={busy || !apiKey} onClick={connectProvider}>{t.connect}</button></details>
+    <details><summary>{t.provider}</summary><button disabled={busy} onClick={connectCodex}>{codexOAuth?.recoverable ? t.retryCodex : t.codex}</button>{codexOAuth && <div aria-live="polite"><p>{codexOAuth.status} · {codexOAuth.provider} · {codexOAuth.model}</p>{codexOAuth.user_code && <p>{t.code}: <code>{codexOAuth.user_code}</code></p>}{codexOAuth.remediation && <p>{codexOAuth.remediation}</p>}{codexOAuth.status === "pending" && <button disabled={busy} onClick={cancelCodex}>{t.cancel}</button>}</div>}<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="claude">Claude</option><option value="gemini">Gemini</option><option value="deepseek">DeepSeek</option></select><label>{t.key}<input type="password" value={apiKey} autoComplete="off" onChange={(event) => setApiKey(event.target.value)} /></label><button disabled={busy || !apiKey} onClick={connectProvider}>{t.connect}</button></details>
     <details><summary>{t.reports}</summary><label>{t.destination}<input value={destination} onChange={(event) => setDestination(event.target.value)} /></label><button disabled={busy || !approvalId || !destination} onClick={generate}>{t.generate}</button></details>
     <details><summary>{t.schedule}</summary><label><input type="checkbox" checked={nonConfidential} onChange={(event) => setNonConfidential(event.target.checked)} /> {t.safe}</label><button disabled={busy || !destination} onClick={previewSchedule}>{t.preview}</button><button disabled={busy || !nonConfidential} onClick={activateSchedule}>{t.activate}</button><button disabled={busy || !scheduleId} onClick={() => run(async () => { const value = await request(`/api/schedules/${scheduleId}/runs`); setHistory(value); return value; })}>{t.history}</button>{history && <pre>{JSON.stringify(history, null, 2)}</pre>}</details>
+    <details><summary>{t.diagnostics}</summary><button disabled={busy} onClick={refreshDiagnostics}>{t.refreshDiagnostics}</button><button disabled={busy} onClick={downloadSupport}>{t.downloadSupport}</button>{diagnostics && <><p><code>{diagnostics.diagnostic_id}</code> <button onClick={() => void navigator.clipboard.writeText(diagnostics.diagnostic_id)}>{t.copyDiagnostic}</button></p><div className="diagnostic-grid">{Object.entries(diagnostics.components).map(([name, component]) => <div key={name}><strong>{name}</strong><span className={`status ${component.ok ? "approved" : "revision"}`}>{component.ok ? "OK" : "Attention"}</span>{!component.ok && component.remediation && <p>{component.remediation}</p>}</div>)}</div></>}</details>
     <h3>{t.status}</h3><pre aria-live="polite">{status}</pre>
   </section>;
 }

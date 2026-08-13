@@ -78,7 +78,7 @@ class ProjectDefinition(BaseModel):
     @classmethod
     def absolute_project_directory(cls, value: Path) -> Path:
         if not value.is_absolute():
-            raise ValueError("Project directory must be an absolute local path")
+            raise ValueError("Use an absolute local project path, for example C:\\Users\\Name\\Documents\\DashboardProject")
         return value.resolve()
 
 

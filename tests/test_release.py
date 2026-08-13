@@ -79,6 +79,9 @@ def test_installers_are_user_scoped_and_loopback_only() -> None:
         assert "hermes-agent==0.13.0" in installer
         assert "aiohttp==3.13.3" in installer
         assert "playwright" in installer.casefold()
+        assert "Node.js 24+" in installer or '24 0 "Node.js"' in installer
+    assert "if (major < 24)" in linux
+    assert 'Test-MinVersion $nodeVersion 24 0 "Node.js"' in windows
     assert "\nsudo " not in linux
     assert 'runtime/node/bin/node' in linux
     assert '--browser-path "$BASE_DIR/.playwright"' in linux

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Sequence
 
 MIN_PYTHON = (3, 11)
-MIN_NODE = (20, 9)
+MIN_NODE = (24, 0)
 ALLOWED_CORS = frozenset(
     {
         "http://127.0.0.1:3000",

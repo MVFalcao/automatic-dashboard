@@ -24,7 +24,7 @@ Empty folders contain a `.gitkeep` file so Git can track them. Remove those file
 
 ## Development
 
-The backend requires Python 3.11 or newer. The frontend requires Node.js 20.9 or
+The backend requires Python 3.11 or newer. The frontend requires Node.js 24 or
 newer. End users will not need to perform these development steps after the
 Windows installer and Linux setup script are implemented.
 
@@ -48,7 +48,7 @@ npm install
 npm run dev
 ```
 
-Use the Node version in `.nvmrc` (20.9.0 or newer). `npm ci` is preferred in CI
+Use the exact Node version in `.nvmrc` (`24.18.0`). `npm ci` is preferred in CI
 and clean environments because it installs exactly from `package-lock.json`.
 
 Both services bind to the local computer only.
@@ -144,7 +144,7 @@ bash scripts/install-linux.sh
 ```
 
 Windows users run `scripts/install-windows.ps1` in PowerShell. Both installers
-check Python 3.11+, Node.js 20.9+, install the web dependencies and Playwright
+check Python 3.11+, Node.js 24+, install the web dependencies and Playwright
 Chromium, create an application-owned Hermes environment pinned to
 `hermes-agent==0.13.0`, and generate launchers. They never copy the ignored
 private source sample. The first-run command prints provider login and model
@@ -159,6 +159,11 @@ The generated `config/local.env` contains only non-secret host and port values.
 Read-only diagnostics are available with `python -m
 automation.release.diagnostics --json`. Release smoke tests are provided by
 `scripts/smoke-test-install.sh` and `scripts/smoke-test-install.ps1`.
+The browser UI also exposes sanitized component diagnostics. `GET
+/api/diagnostics` returns value-free health information, while `POST
+/api/diagnostics/support-bundle` downloads a ZIP containing runtime versions,
+health checks, and redacted operational events. It excludes credentials,
+prompts, subprocess output, project paths, source values, and report content.
 
 Uninstall requires an explicit app directory and confirmation. These commands
 remove only the application-managed directory and never select project folders
@@ -213,7 +218,7 @@ The sanitizer automatically discovers person-specific team labels. Supply one
 `--replace` and `--forbidden-term` pair for each additional private organization,
 program, or person label found in a source template.
 
-## Windows v0.1.0 release
+## Windows v0.2.0 release candidate
 
 The supported first public distribution is a per-user, offline Windows x64
 Setup.exe. It includes the application runtimes and does not require Python,
@@ -230,9 +235,15 @@ manager. OAuth tokens never enter project files or the browser UI.
 The installer also creates **Configure AI provider** and **Uninstall Universal
 Dashboard Agent** shortcuts. Uninstall removes only the application directory;
 project folders and report folders elsewhere are not selected automatically.
+An in-place upgrade stages the previous installation as a temporary backup,
+preserves configuration, the local project registry, and Hermes authentication
+state, and restores the previous installation if the upgrade fails.
 
-Release maintainers create the `v0.1.0` tag from `main`. CI builds and tests a
-draft GitHub Release containing only the Setup.exe, checksums, and a release
-manifest. A maintainer must perform the clean-machine acceptance checklist in
-`final_implementation.md` and explicitly publish the draft; tag pushes never
-publish a public release automatically.
+Release maintainers first run the `draft-release` workflow manually in
+`dry-run` mode. A `v0.2.0` tag from `main`, or an explicitly selected manual
+`draft` run, builds and tests a draft GitHub Release containing only the
+Setup.exe, checksums, and release manifest. Workflow artifacts retain the same
+candidate plus sanitized diagnostics for 14 days. A maintainer must complete
+the clean-machine checklist in `final_implementation_v2.md` and explicitly
+publish the draft; no workflow publishes a public release automatically. See
+`RELEASE_RUNBOOK.md` for the complete maintainer sequence.

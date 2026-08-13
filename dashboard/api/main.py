@@ -6,7 +6,9 @@ import os
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,6 +23,7 @@ from dashboard.api.api_sources import router as api_sources_router
 from dashboard.api.imports import router as imports_router
 from dashboard.api.schedules import router as schedules_router
 from dashboard.api.drift import router as drift_router
+from dashboard.api.diagnostics import router as diagnostics_router
 from dashboard.api.intake import (
     IntakeAnswerRequest,
     IntakeResponse,
@@ -45,6 +48,7 @@ from automation.specification.models import (
     StyleSpec,
 )
 from automation.agent.memory import MemoryKind, SafeMemoryStore
+from automation.release.support import support_events
 
 
 class IntakeWorkspacePreview(BaseModel):
@@ -61,7 +65,7 @@ class IntakeProjectLinkRequest(BaseModel):
 
 class PreviewDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    accent_color: str = Field(default="#23543c", pattern=r"^#[0-9a-fA-F]{6}$")
+    accent_color: str = Field(default="#1D4ED8", pattern=r"^#[0-9a-fA-F]{6}$")
     chart_type: str = Field(default="bar", pattern=r"^(bar|line|pie)$")
     section_order: list[str] = Field(min_length=1)
     terminology: dict[str, str] = Field(default_factory=dict)
@@ -99,7 +103,7 @@ async def application_lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Universal Dashboard Agent",
-    version="0.1.0",
+    version="0.2.0",
     description="Local API for creating and managing dashboard projects.",
     lifespan=application_lifespan,
 )
@@ -114,6 +118,7 @@ app.include_router(api_sources_router)
 app.include_router(imports_router)
 app.include_router(schedules_router)
 app.include_router(drift_router)
+app.include_router(diagnostics_router)
 
 _origins = tuple(
     origin.strip().rstrip("/")
@@ -128,6 +133,23 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 app.middleware("http")(enforce_local_security)
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return useful field errors without echoing rejected values."""
+
+    fields = [
+        {
+            "field": ".".join(str(part) for part in error.get("loc", ()) if part not in {"body", "query", "path"}) or "request",
+            "message": str(error.get("msg", "Invalid value")),
+        }
+        for error in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": {"code": "validation_error", "message": "Request validation failed", "fields": fields}},
+    )
 
 
 @app.get("/health")
@@ -205,7 +227,7 @@ def intake_preview(session_id: UUID) -> IntakeWorkspacePreview:
         layout=LayoutSpec(), localization=LocalizationSpec(language=language, locale="pt-BR" if language == "pt" else "en-US", timezone="America/Sao_Paulo" if language == "pt" else "UTC"),
         privacy=PrivacyPolicy(), outputs=OutputSpec(enabled=enabled_outputs),
         terminology=terminology,
-        style=StyleSpec(palette=[draft_options.accent_color if draft_options else "#23543c"]),
+        style=StyleSpec(palette=[draft_options.accent_color if draft_options else "#1D4ED8"]),
     )
     records = [{"group": f"{fields[0].label} {((index - 1) % 5) + 1}", "value": 100 + ((index * 173) % 900)} for index in range(1, 19)]
     document = build_report_document(spec, records, synthetic=True)
@@ -263,25 +285,48 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
             SafeMemoryStore().remember(kind=MemoryKind.FEEDBACK, key="preview_feedback", value=payload.feedback)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail="Feedback appears confidential and was not sent to Hermes") from exc
+        from dashboard.api.hermes import provider_registry
+        from automation.agent.models import ProviderName
+
+        codex = provider_registry.get(ProviderName.CODEX)
+        if codex is not None and (not codex.connected or codex.model != "gpt-5.5"):
+            raise HTTPException(status_code=409, detail={
+                "code": "provider_model_incompatible",
+                "message": "The connected Codex provider is not ready for gpt-5.5. Reconnect Codex before retrying.",
+                "fields": [{"field": "provider", "message": "Expected openai-codex with gpt-5.5."}],
+            })
         client = managed_hermes.client
         if client is None:
             raise HTTPException(status_code=503, detail="Hermes is not ready. Connect a provider or follow the runtime remediation shown in status.")
-        try:
-            raw = client.chat(
-                model="hermes-agent",
-                messages=[{"role": "user", "content": json.dumps({
-                    "instruction": "Validate this non-confidential dashboard preview feedback. Return JSON with accent_color, chart_type, section_order, and terminology only.",
-                    "feedback": payload.feedback,
-                    "current": payload.model_dump(exclude={"feedback"}),
-                }, ensure_ascii=False)}],
-                response_format={"type": "json_object"},
-            )
-            content = raw["choices"][0]["message"]["content"]
-            proposed = PreviewDraftRequest.model_validate_json(content).model_copy(update={"feedback": None, "feedback_non_confidential": False})
-            payload = proposed
-            hermes_applied = True
-        except Exception as exc:
-            raise HTTPException(status_code=422, detail="Hermes did not return a valid preview draft; the active specification was not changed.") from exc
+        allowed_sections = {"summary", "distribution", "details"}
+        for attempt in range(2):
+            try:
+                raw = client.chat(
+                    model="hermes-agent",
+                    messages=[{"role": "user", "content": json.dumps({
+                        "instruction": "Return one strict JSON object with accent_color, chart_type, section_order, and terminology only. Include every section exactly once.",
+                        "feedback": payload.feedback,
+                        "current": payload.model_dump(exclude={"feedback"}),
+                        "required_sections": sorted(allowed_sections),
+                        "repair_attempt": attempt == 1,
+                    }, ensure_ascii=False)}],
+                    response_format={"type": "json_object"},
+                )
+                content = raw["choices"][0]["message"]["content"]
+                proposed = PreviewDraftRequest.model_validate_json(content).model_copy(update={"feedback": None, "feedback_non_confidential": False})
+                if set(proposed.section_order) != allowed_sections or len(proposed.section_order) != len(allowed_sections):
+                    raise ValueError("Invalid reviewed section order")
+                payload = proposed
+                hermes_applied = True
+                break
+            except Exception as exc:
+                if attempt == 1:
+                    support_events.record("hermes_draft_invalid", level="WARNING", details={"attempt": 2, "code": "invalid_hermes_draft", "component": "review"})
+                    raise HTTPException(status_code=422, detail={
+                        "code": "invalid_hermes_draft",
+                        "message": "Hermes could not produce a valid dashboard revision after one retry. The active specification was not changed.",
+                        "fields": [{"field": "feedback", "message": "Revise the request and try again."}],
+                    }) from exc
     else:
         hermes_applied = False
     allowed_sections = {"summary", "distribution", "details"}

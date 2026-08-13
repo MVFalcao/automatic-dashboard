@@ -140,6 +140,13 @@ preview before activation. OS notifications are optional and best effort.
 
 Release/install decisions:
 
+- The v0.2.0 release candidate upgrades the bundled frontend runtime to exact
+  Node.js 24.18.0 LTS, uses a professional navy-blue default theme, adds
+  sanitized support diagnostics, and supports transactional upgrades from the
+  v0.1.0 Windows installation.
+- Candidate builds may be created with a manual dry run or as a draft release;
+  no workflow publishes a release automatically.
+
 - The v0.1.0 public distribution is Windows x64 first; Linux remains supported
   by the validated technical installer and offline bundle but is not included
   in the first end-user release.

@@ -10,8 +10,13 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $installDirExisted = Test-Path -LiteralPath $InstallDir
+$backupDir = "$InstallDir.upgrade-backup"
+$upgradePrepared = $false
 trap {
-    if (-not $installDirExisted -and (Test-Path -LiteralPath $InstallDir)) {
+    if ($upgradePrepared) {
+        if (Test-Path -LiteralPath $InstallDir) { Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $backupDir) { Move-Item -LiteralPath $backupDir -Destination $InstallDir -Force }
+    } elseif (-not $installDirExisted -and (Test-Path -LiteralPath $InstallDir)) {
         Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     throw
@@ -51,10 +56,30 @@ if ($BundleDir) {
 $pythonVersion = (& $python --version 2>&1).Trim()
 $nodeVersion = (& $node --version 2>&1).Trim()
 Test-MinVersion ($pythonVersion -replace "Python ", "") 3 11 "Python"
-Test-MinVersion $nodeVersion 20 9 "Node.js"
+Test-MinVersion $nodeVersion 24 0 "Node.js"
 if (-not (Test-Path (Join-Path $Source "pyproject.toml"))) { Fail "Source directory does not contain pyproject.toml: $Source" }
 
+if ($BundleDir -and $installDirExisted) {
+    if (Test-Path -LiteralPath $backupDir) { Fail "A previous upgrade backup exists: $backupDir. Restore or remove it before retrying." }
+    Write-Host "Preparing transactional upgrade of $InstallDir..."
+    $oldHermes = Join-Path $InstallDir ".hermes-runtime\Scripts\hermes.exe"
+    if (Test-Path -LiteralPath $oldHermes) {
+        $env:HERMES_HOME = Join-Path $InstallDir ".hermes-data"
+        & $oldHermes gateway stop | Out-Null
+    }
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.ExecutablePath -and $_.ExecutablePath.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase)
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Move-Item -LiteralPath $InstallDir -Destination $backupDir
+    $upgradePrepared = $true
+}
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+if ($upgradePrepared) {
+    foreach ($preserved in @(".hermes-data", "config", "projects.json")) {
+        $existing = Join-Path $backupDir $preserved
+        if (Test-Path -LiteralPath $existing) { Copy-Item -LiteralPath $existing -Destination (Join-Path $InstallDir $preserved) -Recurse -Force }
+    }
+}
 if (-not $NoCopy -and ((Resolve-Path $Source).Path -ne (Resolve-Path $InstallDir).Path)) {
     $excludeDirectories = @(
         ".git",
@@ -84,34 +109,46 @@ $venv = Join-Path $InstallDir ".venv"
 $hermes = Join-Path $InstallDir ".hermes-runtime"
 $playwright = Join-Path $InstallDir ".playwright"
 & $python -m venv $venv
+if ($LASTEXITCODE -ne 0) { Fail "Unable to create the application Python environment (exit code $LASTEXITCODE)." }
 $venvPython = Join-Path $venv "Scripts\python.exe"
 if ($BundleDir) {
     & $venvPython -m pip install --no-index --find-links (Join-Path $BundleDir "wheels") universal-dashboard-agent
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to install the offline application wheel (exit code $LASTEXITCODE)." }
 } else {
     & $venvPython -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to prepare pip (exit code $LASTEXITCODE)." }
     & $venvPython -m pip install --upgrade $InstallDir
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to install the application (exit code $LASTEXITCODE)." }
 }
 if ($BundleDir) {
     Copy-Item -Recurse -Force (Join-Path $BundleDir "runtime\playwright") $playwright
 } elseif (-not $SkipBrowser) {
     $env:PLAYWRIGHT_BROWSERS_PATH = $playwright
     & $venvPython -m playwright install chromium
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to install Playwright Chromium (exit code $LASTEXITCODE)." }
 }
 if ($BundleDir) {
     & $python -m venv $hermes
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to create the Hermes environment (exit code $LASTEXITCODE)." }
     $hermesPython = Join-Path $hermes "Scripts\python.exe"
     & $hermesPython -m pip install --no-index --find-links (Join-Path $BundleDir "hermes-wheels") "hermes-agent==0.13.0" "aiohttp==3.13.3"
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to install the offline Hermes runtime (exit code $LASTEXITCODE)." }
 } else {
     & $python -m venv $hermes
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to create the Hermes environment (exit code $LASTEXITCODE)." }
     $hermesPython = Join-Path $hermes "Scripts\python.exe"
     & $hermesPython -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to prepare Hermes pip (exit code $LASTEXITCODE)." }
     & $hermesPython -m pip install --upgrade "hermes-agent==0.13.0" "aiohttp==3.13.3"
+    if ($LASTEXITCODE -ne 0) { Fail "Unable to install Hermes (exit code $LASTEXITCODE)." }
 }
 if (-not $BundleDir -and -not $SkipBuild) {
     Push-Location (Join-Path $InstallDir "dashboard\web")
     try {
         npm ci
+        if ($LASTEXITCODE -ne 0) { Fail "Unable to install frontend dependencies (exit code $LASTEXITCODE)." }
         npm run build
+        if ($LASTEXITCODE -ne 0) { Fail "Unable to build the frontend (exit code $LASTEXITCODE)." }
         New-Item -ItemType Directory -Force -Path ".next\standalone\.next\static" | Out-Null
         Copy-Item -Recurse -Force ".next\static\*" ".next\standalone\.next\static"
         if (Test-Path "public") {
@@ -178,6 +215,21 @@ try {
   & '$hermesExecutable' gateway stop | Out-Null
 }
 "@ | Set-Content -Encoding UTF8 $start
+
+$wasUpgrade = $upgradePrepared
+@"
+{
+  "schema_version": 1,
+  "application_version": "0.2.0",
+  "upgraded_from_existing_installation": $($wasUpgrade.ToString().ToLowerInvariant())
+}
+"@ | Set-Content -Encoding UTF8 (Join-Path $InstallDir "application-version.json")
+
+if ($wasUpgrade -and (Test-Path -LiteralPath $backupDir)) {
+    $upgradePrepared = $false
+    Remove-Item -LiteralPath $backupDir -Recurse -Force
+    Write-Host "Upgrade complete. Provider authentication, configuration, and the local project registry were preserved."
+}
 
 Write-Host "Installed Universal Dashboard Agent in $InstallDir"
 Write-Host "Run first-run diagnostics/provider setup: $firstRun"

@@ -56,6 +56,10 @@ async function completeJourney(page: import("@playwright/test").Page, language: 
     await page.locator("#answer").fill(answer);
     await page.getByLabel(language === "pt" ? /Esta resposta não é confidencial/ : /This answer is non-confidential/).check();
     await page.getByRole("button", { name: language === "pt" ? /Continuar|Concluir/ : /Continue|Finish/ }).click();
+    if (index === answers.length - 2) {
+      await expect(page.getByRole("heading", { name: language === "pt" ? "O que o agente entendeu" : "What the agent understood" })).toBeVisible();
+      await expect(page.locator(".understanding-note")).toContainText(answer);
+    }
     if (index < answers.length - 1) await expect(page.locator("#answer")).toHaveValue("");
   }
   await expect(page.getByRole("heading", { name: language === "pt" ? "Revisão sintética do dashboard" : "Synthetic dashboard review" })).toBeVisible();

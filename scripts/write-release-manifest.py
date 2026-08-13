@@ -21,12 +21,18 @@ parser.add_argument("--version", required=True)
 parser.add_argument("--setup", type=Path, required=True)
 parser.add_argument("--bundle", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--python-version", required=True)
+parser.add_argument("--node-version", required=True)
+parser.add_argument("--hermes-version", required=True)
+parser.add_argument("--playwright-version", required=True)
+parser.add_argument("--chromium-version", required=True)
+parser.add_argument("--installer-version", required=True)
 args = parser.parse_args()
 
 setup = args.setup.resolve()
 bundle = args.bundle.resolve()
 manifest = {
-    "schema_version": 1,
+    "schema_version": 2,
     "application_version": args.version,
     "platform": "windows",
     "architecture": "x64",
@@ -39,6 +45,14 @@ manifest = {
         "directory": bundle.name,
         "size_bytes": sum(path.stat().st_size for path in bundle.rglob("*") if path.is_file()),
         "manifest": "manifest.sha256",
+    },
+    "runtimes": {
+        "python": args.python_version,
+        "node": args.node_version,
+        "hermes": args.hermes_version,
+        "playwright": args.playwright_version,
+        "chromium": args.chromium_version,
+        "installer": args.installer_version,
     },
 }
 if manifest["installer"]["size_bytes"] >= 2 * 1024 * 1024 * 1024:

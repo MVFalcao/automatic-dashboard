@@ -10,8 +10,8 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_release_version_is_coherent() -> None:
-    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "check-version.py"), "--tag", "v0.1.0"], capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == "0.1.0"
+    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "check-version.py"), "--tag", "v0.2.0"], capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "0.2.0"
 
 
 def test_release_version_rejects_mismatched_tag() -> None:
@@ -27,6 +27,27 @@ def test_inno_setup_is_user_scoped_and_offline() -> None:
     assert "Uninstallable=no" in script
     # Inno Setup escapes embedded quotes by doubling them, not with backslashes.
     assert '\\"' not in script
+    assert '#define AppVersion "0.2.0"' in script
+    assert 'InstallDir ""{app}""' in script
+
+
+def test_release_workflow_has_dry_run_artifacts_and_manual_publish_gate() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in workflow
+    assert "dry-run" in workflow
+    assert "actions/upload-artifact@v4" in workflow
+    assert "Create draft GitHub Release" in workflow
+    assert "gh release create" in workflow
+    assert "gh release edit" not in workflow
+    assert "--draft" in workflow
+
+
+def test_windows_installer_has_transactional_upgrade_guards() -> None:
+    installer = (ROOT / "scripts" / "install-windows.ps1").read_text(encoding="utf-8")
+    assert ".upgrade-backup" in installer
+    assert "Move-Item -LiteralPath $backupDir -Destination $InstallDir" in installer
+    assert '".hermes-data", "config", "projects.json"' in installer
+    assert "application-version.json" in installer
 
 
 def test_release_manifest_writer_records_artifact_metadata(tmp_path: Path) -> None:
@@ -40,14 +61,22 @@ def test_release_manifest_writer_records_artifact_metadata(tmp_path: Path) -> No
         sys.executable,
         str(ROOT / "scripts" / "write-release-manifest.py"),
         "--version",
-        "0.1.0",
+        "0.2.0",
         "--setup",
         str(setup),
         "--bundle",
         str(bundle),
         "--output",
         str(output),
+        "--python-version", "3.12.10",
+        "--node-version", "24.18.0",
+        "--hermes-version", "0.13.0",
+        "--playwright-version", "1.55.1",
+        "--chromium-version", "synthetic-revision",
+        "--installer-version", "Inno Setup 6.7.1",
     ], check=True)
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["platform"] == "windows"
     assert payload["installer"]["filename"] == "setup.exe"
+    assert payload["schema_version"] == 2
+    assert payload["runtimes"]["node"] == "24.18.0"

@@ -86,3 +86,29 @@ def test_oauth_expiration_is_publicly_sanitized() -> None:
     result = manager.status(session.session_id)
     assert result["status"] == "expired"
     assert result["expires_in"] == 0
+
+
+def test_oauth_process_failure_is_recoverable(monkeypatch) -> None:
+    manager = CodexOAuthManager()
+    fake = _FakeProcess([], returncode=1)
+    monkeypatch.setattr(manager, "_already_connected", lambda: False)
+    monkeypatch.setattr("automation.agent.oauth.subprocess.Popen", lambda *args, **kwargs: fake)
+    result = manager.start("project-1")
+    for _ in range(20):
+        result = manager.status(result["session_id"])
+        if result["status"] != "pending":
+            break
+        time.sleep(0.01)
+    assert result["status"] == "failed"
+    assert result["recoverable"] is True
+    assert result["remediation"] == "Start a new browser login."
+
+
+def test_oauth_model_incompatibility_is_reported(monkeypatch) -> None:
+    manager = CodexOAuthManager()
+    monkeypatch.setattr(manager, "_already_connected", lambda: True)
+    monkeypatch.setattr(manager, "_select_model", lambda: False)
+    result = manager.start("project-1")
+    assert result["status"] == "failed"
+    assert result["compatible"] is False
+    assert "gpt-5.5" in str(result["error"])

@@ -1,4 +1,4 @@
-#define AppVersion "0.1.0"
+#define AppVersion "0.2.0"
 #ifndef BundleDir
   #define BundleDir "release-bundle"
 #endif
@@ -24,9 +24,9 @@ SetupLogging=yes
 Source: "{#BundleDir}\*"; DestDir: "{tmp}\UniversalDashboardAgent-bundle"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\UniversalDashboardAgent-bundle\scripts\install-windows.ps1"" -BundleDir ""{tmp}\UniversalDashboardAgent-bundle"" -InstallDir ""{localappdata}\UniversalDashboardAgent"""; WorkingDir: "{tmp}\UniversalDashboardAgent-bundle"; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\UniversalDashboardAgent-bundle\scripts\install-windows.ps1"" -BundleDir ""{tmp}\UniversalDashboardAgent-bundle"" -InstallDir ""{app}"""; WorkingDir: "{tmp}\UniversalDashboardAgent-bundle"; Flags: waituntilterminated
 
 [Icons]
-Name: "{group}\Universal Dashboard Agent"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{localappdata}\UniversalDashboardAgent\dashboard-start.ps1"""; WorkingDir: "{localappdata}\UniversalDashboardAgent"
-Name: "{group}\Configure AI provider"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{localappdata}\UniversalDashboardAgent\dashboard-first-run.ps1"""; WorkingDir: "{localappdata}\UniversalDashboardAgent"
-Name: "{group}\Uninstall Universal Dashboard Agent"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{localappdata}\UniversalDashboardAgent\scripts\uninstall-windows.ps1"" -InstallDir ""{localappdata}\UniversalDashboardAgent"" -ConfirmUninstall"; WorkingDir: "{localappdata}\UniversalDashboardAgent"
+Name: "{group}\Universal Dashboard Agent"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\dashboard-start.ps1"""; WorkingDir: "{app}"
+Name: "{group}\Configure AI provider"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\dashboard-first-run.ps1"""; WorkingDir: "{app}"
+Name: "{group}\Uninstall Universal Dashboard Agent"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\uninstall-windows.ps1"" -InstallDir ""{app}"" -ConfirmUninstall"; WorkingDir: "{app}"

@@ -44,10 +44,10 @@ fi
 PYTHON=${PYTHON:-python3}
 NODE=${NODE:-node}
 command -v "$PYTHON" >/dev/null 2>&1 || { printf 'Python 3.11+ is required; install it for your user account.\n' >&2; exit 1; }
-command -v "$NODE" >/dev/null 2>&1 || { printf 'Node.js 20.9+ is required; install it for your user account.\n' >&2; exit 1; }
+command -v "$NODE" >/dev/null 2>&1 || { printf 'Node.js 24+ is required; install it for your user account.\n' >&2; exit 1; }
 "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else "Python 3.11+ is required")'
-"$NODE" -e 'const [major,minor]=process.versions.node.split(".").map(Number); if (major < 20 || (major === 20 && minor < 9)) process.exit(1)' || {
-  printf 'Node.js 20.9+ is required (found %s).\n' "$($NODE --version)" >&2; exit 1;
+"$NODE" -e 'const [major]=process.versions.node.split(".").map(Number); if (major < 24) process.exit(1)' || {
+  printf 'Node.js 24+ is required (found %s).\n' "$($NODE --version)" >&2; exit 1;
 }
 
 mkdir -p "$INSTALL_DIR"

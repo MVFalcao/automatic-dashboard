@@ -85,6 +85,14 @@ def main() -> int:
     copy_tree(require(args.python_runtime, "Pinned Python runtime"), output / "runtime" / "python")
     copy_tree(require(args.node_runtime, "Pinned Node runtime"), output / "runtime" / "node")
     copy_tree(require(args.playwright_browsers, "Playwright Chromium"), output / "runtime" / "playwright")
+    packaged_python = require(output / "runtime" / "python" / ("python.exe" if os.name == "nt" else "bin/python"), "Packaged Python executable")
+    packaged_node = require(output / "runtime" / "node" / ("node.exe" if os.name == "nt" else "bin/node"), "Packaged Node executable")
+    python_version = subprocess.run([str(packaged_python), "-c", "import platform; print(platform.python_version())"], check=True, capture_output=True, text=True).stdout.strip()
+    node_version = subprocess.run([str(packaged_node), "--version"], check=True, capture_output=True, text=True).stdout.strip().lstrip("v")
+    if not python_version.startswith("3.12."):
+        raise SystemExit(f"Packaged Python must be 3.12.x, found {python_version}")
+    if node_version != "24.18.0":
+        raise SystemExit(f"Packaged Node must be 24.18.0, found {node_version}")
     for installer in ("install-windows.ps1", "uninstall-windows.ps1", "smoke-test-install.ps1"):
         destination = output / "scripts" / installer
         destination.parent.mkdir(parents=True, exist_ok=True)

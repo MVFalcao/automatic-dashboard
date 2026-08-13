@@ -1,9 +1,9 @@
 {
   "name": "universal-dashboard-agent-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "next dev -H 127.0.0.1",

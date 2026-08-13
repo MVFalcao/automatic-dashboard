@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
+from automation.release.support import support_events
+
 
 _URL_RE = re.compile(r"https?://[^\s)]+", re.IGNORECASE)
 _CODE_RE = re.compile(r"\b([A-Z0-9]{4,}(?:[- ][A-Z0-9]{3,})+)\b")
@@ -81,8 +83,12 @@ class CodexOAuthManager:
             self._sessions[session.session_id] = session
 
         if self._already_connected():
-            self._select_model()
-            session.status = "connected"
+            if self._select_model() is False:
+                session.status = "failed"
+                session.error_message = "Codex is authenticated but gpt-5.5 could not be selected"
+            else:
+                session.status = "connected"
+            support_events.record("codex_oauth_existing", details={"status": session.status, "component": "oauth"})
             return self.public_status(session.session_id)
 
         try:
@@ -100,6 +106,7 @@ class CodexOAuthManager:
         except OSError:
             session.status = "failed"
             session.error_message = "Managed Hermes OAuth is unavailable"
+            support_events.record("codex_oauth_start_failed", level="ERROR", details={"status": "failed", "component": "oauth"})
         return self.public_status(session.session_id)
 
     def _consume(self, session: _Session) -> None:
@@ -115,11 +122,15 @@ class CodexOAuthManager:
             return_code = process.wait(timeout=5)
             if session.status == "pending":
                 if return_code == 0:
-                    self._select_model()
-                    session.status = "connected"
+                    if self._select_model() is False:
+                        session.status = "failed"
+                        session.error_message = "Codex is authenticated but gpt-5.5 could not be selected"
+                    else:
+                        session.status = "connected"
                 else:
                     session.status = "failed"
                     session.error_message = "Provider authentication failed"
+                support_events.record("codex_oauth_completed", level="INFO" if session.status == "connected" else "WARNING", details={"status": session.status, "component": "oauth"})
         except (OSError, subprocess.SubprocessError):
             if session.status == "pending":
                 session.status = "failed"
@@ -143,19 +154,25 @@ class CodexOAuthManager:
             if codes:
                 session.user_code = codes[-1].replace(" ", "-")
 
-    def _select_model(self) -> None:
+    def _select_model(self) -> bool:
         environment = self._environment()
         executable = self._executable()
+        selected = True
         for key, value in (("model.provider", "openai-codex"), ("model.default", "gpt-5.5")):
-            subprocess.run(
-                [executable, "config", "set", key, value],
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-                check=False,
-            )
+            try:
+                result = subprocess.run(
+                    [executable, "config", "set", key, value],
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=15,
+                    check=False,
+                )
+                selected = selected and result.returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                selected = False
+        return selected
 
     def _terminate(self, session: _Session, status: str) -> None:
         process = session.process
@@ -166,6 +183,7 @@ class CodexOAuthManager:
                 process.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 process.kill()
+        support_events.record("codex_oauth_terminated", details={"status": status, "component": "oauth"})
 
     def status(self, session_id: str) -> dict[str, object]:
         with self._lock:
@@ -187,6 +205,7 @@ class CodexOAuthManager:
     def public_status(self, session_id: str) -> dict[str, object]:
         with self._lock:
             session = self._sessions[session_id]
+        recoverable = session.status in {"failed", "expired", "cancelled"}
         return {
             "session_id": session.session_id,
             "project_id": session.project_id,
@@ -195,6 +214,11 @@ class CodexOAuthManager:
             "user_code": session.user_code,
             "expires_in": max(0, int(session.expires_at - time.monotonic())),
             "error": session.error_message,
+            "recoverable": recoverable,
+            "remediation": "Start a new browser login." if recoverable else None,
+            "provider": "openai-codex",
+            "model": "gpt-5.5",
+            "compatible": session.status == "connected",
         }
 
     def stop(self) -> None:

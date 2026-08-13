@@ -34,6 +34,11 @@ type ReferenceInspection = {
 
 type ProjectEntry = { id: string; name: string; project_directory: string };
 
+const contextLabels: Record<Language, Record<string, string>> = {
+  en: { goal: "Goal", audience: "Audience", reference_sample: "Reference sample", outputs: "Outputs", project_location: "Project location" },
+  pt: { goal: "Objetivo", audience: "Público", reference_sample: "Amostra de referência", outputs: "Saídas", project_location: "Local do projeto" },
+};
+
 const copy = {
   en: {
     eyebrow: "Local dashboard workspace",
@@ -44,6 +49,9 @@ const copy = {
     continue: "Continue",
     finish: "Finish setup",
     complete: "Your initial dashboard requirements are ready for review.",
+    understanding: "What the agent understood",
+    confirmationNote: "Review this summary before confirming the requirements.",
+    projectPath: "Use an absolute local path, for example C:\\Users\\Name\\Documents\\DashboardProject or /home/name/DashboardProject.",
     upload: "Optional reference sample",
     confidential: "This file contains confidential data",
     extraction: "Allow the agent to inspect data contained in this file",
@@ -64,6 +72,9 @@ const copy = {
     continue: "Continuar",
     finish: "Concluir configuração",
     complete: "Os requisitos iniciais do seu dashboard estão prontos para revisão.",
+    understanding: "O que o agente entendeu",
+    confirmationNote: "Revise este resumo antes de confirmar os requisitos.",
+    projectPath: "Use um caminho local absoluto, por exemplo C:\\Users\\Nome\\Documents\\ProjetoDashboard ou /home/nome/ProjetoDashboard.",
     upload: "Amostra de referência opcional",
     confidential: "Este arquivo contém dados confidenciais",
     extraction: "Permitir que o agente inspecione os dados contidos neste arquivo",
@@ -160,6 +171,8 @@ export default function SetupPage() {
     ? "O que este dashboard deve ajudar você a entender ou decidir?"
     : "What should this dashboard help you understand or decide?");
   const isReferenceStep = session?.step === "reference_sample";
+  const isConfirmationStep = session?.step === "confirmation";
+  const isProjectLocationStep = session?.step === "project_location";
 
   if (session?.step === "complete") {
     return <DashboardReview language={language} sessionId={session.session_id} context={session.confirmed_context} />;
@@ -179,9 +192,17 @@ export default function SetupPage() {
         {
           <form onSubmit={submit}>
             <h1 id="setup-title">{question}</h1>
-            <p className="intro">{text.intro}</p>
+            {(!session || session.step === "goal") && <p className="intro">{text.intro}</p>}
+            {isConfirmationStep && session && (
+              <section className="understanding-note" aria-labelledby="understanding-title">
+                <h2 id="understanding-title">{text.understanding}</h2>
+                <p>{text.confirmationNote}</p>
+                <dl>{Object.entries(session.confirmed_context).map(([key, value]) => <div key={key}><dt>{contextLabels[language][key] ?? key}</dt><dd>{value}</dd></div>)}</dl>
+              </section>
+            )}
             <label htmlFor="answer" className="sr-only">{question}</label>
             <textarea id="answer" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={text.placeholder} rows={5} />
+            {isProjectLocationStep && <p className="field-guidance">{text.projectPath}</p>}
             <label><input type="checkbox" checked={answerNonConfidential} onChange={(event) => setAnswerNonConfidential(event.target.checked)} /> {text.nonConfidential}</label>
             {isReferenceStep && (
               <fieldset className="upload-box">
