@@ -171,7 +171,10 @@ class ApiClient:
             self._wait_rate_limit(source)
             try:
                 with httpx.Client(timeout=source.timeout_seconds, transport=self.transport, follow_redirects=False) as client:
-                    current_url = str(httpx.URL(url, params=params))
+                    # Preserve fixed endpoint filters while adding pagination
+                    # or incremental parameters. Constructing URL(...,
+                    # params={}) replaces the configured query entirely.
+                    current_url = str(httpx.URL(url).copy_merge_params(params))
                     while True:
                         address = _safe_url(source, current_url, resolver=self.resolver)
                         logical = httpx.URL(current_url)

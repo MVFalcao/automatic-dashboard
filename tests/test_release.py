@@ -80,10 +80,14 @@ def test_installers_are_user_scoped_and_loopback_only() -> None:
         assert "playwright" in installer.casefold()
     assert "\nsudo " not in linux
     assert 'runtime/node/bin/node' in linux
+    assert '--browser-path "$BASE_DIR/.playwright"' in linux
+    assert '--node "$BASE_DIR/runtime/node/bin/node"' in linux
     assert "--exclude=./reports" in linux
     assert "--exclude=reports" not in linux
     assert "robocopy" in windows
     assert 'Join-Path $Source $_' in windows
+    assert "--browser-path '$playwright'" in windows
+    assert "--node '$node'" in windows
 
 
 def test_release_copy_preserves_standalone_dependencies_only(tmp_path: Path) -> None:

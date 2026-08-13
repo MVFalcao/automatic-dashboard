@@ -144,7 +144,8 @@ set -a
 . "$BASE_DIR/config/local.env"
 set +a
 export DASHBOARD_LOCAL_AUTH_TOKEN=$("$BASE_DIR/.venv/bin/python" -c 'import secrets; print(secrets.token_urlsafe(32))')
-exec "$BASE_DIR/.venv/bin/python" -m automation.release.first_run --root "$BASE_DIR" --runtime "$BASE_DIR/.hermes-runtime" "$@"
+export PATH="$BASE_DIR/.hermes-runtime/bin:$BASE_DIR/runtime/node/bin:$PATH"
+exec "$BASE_DIR/.venv/bin/python" -m automation.release.first_run --root "$BASE_DIR" --runtime "$BASE_DIR/.hermes-runtime" --node "$BASE_DIR/runtime/node/bin/node" --browser-path "$BASE_DIR/.playwright" "$@"
 EOF
 chmod 700 "$INSTALL_DIR/bin/dashboard-first-run"
 printf '\nInstalled Universal Dashboard Agent in %s\n' "$INSTALL_DIR"
