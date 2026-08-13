@@ -104,6 +104,9 @@ def test_release_copy_preserves_standalone_dependencies_only(tmp_path: Path) -> 
     standalone = source / "dashboard" / "web" / ".next" / "standalone" / "node_modules" / "next"
     standalone.mkdir(parents=True)
     (standalone / "server.js").write_text("packaged runtime dependency", encoding="utf-8")
+    standalone_build = source / "dashboard" / "web" / ".next" / "standalone" / ".next"
+    standalone_build.mkdir(parents=True)
+    (standalone_build / "BUILD_ID").write_text("synthetic-build", encoding="utf-8")
     (source / "dashboard" / "web" / ".next" / "cache").mkdir(parents=True)
     (source / "dashboard" / "web" / ".next" / "cache" / "trace").write_text("build cache", encoding="utf-8")
 
@@ -114,6 +117,11 @@ def test_release_copy_preserves_standalone_dependencies_only(tmp_path: Path) -> 
     assert not (destination / "dashboard" / "web" / "node_modules").exists()
     assert not (destination / "dashboard" / "web" / ".next" / "cache").exists()
     assert (destination / "dashboard" / "web" / ".next" / "standalone" / "node_modules" / "next" / "server.js").is_file()
+    assert (destination / "dashboard" / "web" / ".next" / "standalone" / ".next" / "BUILD_ID").is_file()
+
+    standalone_destination = tmp_path / "standalone-copy"
+    copy_tree(source / "dashboard" / "web" / ".next" / "standalone", standalone_destination)
+    assert (standalone_destination / ".next" / "BUILD_ID").is_file()
 
 
 def test_release_copy_excludes_local_test_and_secret_artifacts(tmp_path: Path) -> None:

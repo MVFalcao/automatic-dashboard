@@ -32,16 +32,20 @@ def copy_tree(source: Path, destination: Path) -> None:
         # node_modules; every other dependency tree is a development artifact.
         directory_path = Path(directory).resolve()
         relative_parts = directory_path.relative_to(root).parts
+        # Next's standalone server resolves its production build relative to
+        # its own directory, so the nested .next tree must remain intact.
+        standalone_tree = root.name == "standalone" and root.parent.name == ".next"
         in_standalone = any(
             relative_parts[index:index + 2] == (".next", "standalone")
             for index in range(len(relative_parts) - 1)
         )
+        in_standalone = in_standalone or standalone_tree
         ignored = set(names) & ALWAYS_EXCLUDED
         ignored.update(name for name in names if name == ".env" or name.startswith(".env.") or name.startswith("private_source_"))
         ignored.update(name for name in names if name.endswith((".egg-info", ".tsbuildinfo")))
         if not in_standalone and "node_modules" in names:
             ignored.add("node_modules")
-        if directory_path.name == ".next":
+        if directory_path.name == ".next" and not in_standalone:
             ignored.update(set(names) - {"standalone", "static"})
         if directory_path == root:
             ignored.update(set(names) & ROOT_EXCLUDED)
