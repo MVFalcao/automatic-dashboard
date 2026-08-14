@@ -54,6 +54,8 @@ def test_windows_installer_has_transactional_upgrade_guards() -> None:
     assert "throw $originalError" in installer
     assert "Test-Path -LiteralPath $target" in installer
     assert "Get-FileHash -LiteralPath $target" in installer
+    assert 'if (-not $BundleDir) {' in installer
+    assert '$excludeDirectories += Join-Path $Source "dashboard\\web\\.next"' in installer
     assert ".upgrade-backup" in installer
     assert "Move-Item -LiteralPath $backupDir -Destination $InstallDir" in installer
     assert '".hermes-data", "config", "projects.json"' in installer
@@ -76,6 +78,7 @@ def test_windows_release_acceptance_is_shared_and_checks_installed_files() -> No
     assert "-RedirectStandardError $webStderr" in smoke
     assert "if ($web.HasExited) { break }" in smoke
     assert "Frontend stderr:" in smoke
+    assert '-FilePath "npm.cmd"' in smoke
 
 
 def test_inno_setup_propagates_application_install_failure() -> None:

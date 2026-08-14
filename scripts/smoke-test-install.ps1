@@ -41,7 +41,7 @@ try {
         $env:HOSTNAME = "127.0.0.1"; $env:PORT = "$WebPort"
         $web = Start-Process -FilePath $node -ArgumentList "server.js" -WorkingDirectory (Split-Path -Parent $standalone) -RedirectStandardOutput $webStdout -RedirectStandardError $webStderr -PassThru
     } else {
-        $web = Start-Process -FilePath "npm" -ArgumentList @('run','start','--','-H','127.0.0.1','-p',$WebPort) -WorkingDirectory (Join-Path $InstallDir "dashboard\web") -RedirectStandardOutput $webStdout -RedirectStandardError $webStderr -PassThru
+        $web = Start-Process -FilePath "npm.cmd" -ArgumentList @('run','start','--','-H','127.0.0.1','-p',$WebPort) -WorkingDirectory (Join-Path $InstallDir "dashboard\web") -RedirectStandardOutput $webStdout -RedirectStandardError $webStderr -PassThru
     }
     $page = $null
     for ($i = 0; $i -lt 120; $i++) {

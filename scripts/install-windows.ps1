@@ -90,9 +90,14 @@ if (-not $NoCopy -and ((Resolve-Path $Source).Path -ne (Resolve-Path $InstallDir
         ".playwright",
         "reports",
         "data",
-        "dashboard\web\node_modules",
-        "dashboard\web\.next"
+        "dashboard\web\node_modules"
     ) | ForEach-Object { Join-Path $Source $_ }
+    # Offline bundles contain the production Next.js standalone server under
+    # .next. Development installs rebuild it locally and should not copy a
+    # potentially stale development build.
+    if (-not $BundleDir) {
+        $excludeDirectories += Join-Path $Source "dashboard\web\.next"
+    }
     Write-Host "Copying application files to $InstallDir..."
     & robocopy $Source $InstallDir /E /XD $excludeDirectories /XF (Join-Path $Source "private_source_dashboard.xlsx") | Out-Null
     if ($LASTEXITCODE -gt 7) { Fail "Unable to copy application files (robocopy code $LASTEXITCODE)." }
