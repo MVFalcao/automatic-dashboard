@@ -46,8 +46,8 @@ begin
   Parameters := '-NoProfile -ExecutionPolicy Bypass -File "' + InstallScript +
     '" -BundleDir "' + BundlePath + '" -InstallDir "' + ExpandConstant('{app}') + '"';
 
-  if not Exec(PowerShellPath, Parameters, BundlePath, SW_HIDE,
-    ewWaitUntilTerminated, ResultCode) then
+  if not ExecAndLogOutput(PowerShellPath, Parameters, BundlePath, SW_SHOWNORMAL,
+    ewWaitUntilTerminated, ResultCode, nil) then
     RaiseException('Unable to start the application installer: ' + SysErrorMessage(ResultCode));
   if ResultCode <> 0 then
     RaiseException(Format('Application installation failed with exit code %d. Review the Setup log.', [ResultCode]));

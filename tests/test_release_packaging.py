@@ -72,6 +72,7 @@ def test_windows_release_acceptance_is_shared_and_checks_installed_files() -> No
 def test_inno_setup_propagates_application_install_failure() -> None:
     script = (ROOT / "scripts" / "UniversalDashboardAgent.iss").read_text(encoding="utf-8")
     assert "procedure CurStepChanged" in script
+    assert "ExecAndLogOutput" in script
     assert "ewWaitUntilTerminated" in script
     assert "if ResultCode <> 0 then" in script
     assert "Application installation failed with exit code" in script
