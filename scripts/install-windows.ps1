@@ -39,12 +39,12 @@ function Test-MinVersion([string]$Value, [int]$Major, [int]$Minor, [string]$Name
 
 if ($BundleDir) {
     $manifest = Join-Path $BundleDir "manifest.sha256"
-    if (-not (Test-Path $manifest)) { Fail "Release bundle manifest is missing." }
-    foreach ($line in Get-Content $manifest) {
+    if (-not (Test-Path -LiteralPath $manifest)) { Fail "Release bundle manifest is missing." }
+    foreach ($line in Get-Content -LiteralPath $manifest) {
         if (-not $line.Trim()) { continue }
         $parts = $line -split '\s+', 2
         $target = Join-Path $BundleDir $parts[1].Trim().TrimStart('*')
-        if (-not (Test-Path $target) -or (Get-FileHash -Algorithm SHA256 $target).Hash.ToLowerInvariant() -ne $parts[0].ToLowerInvariant()) {
+        if (-not (Test-Path -LiteralPath $target) -or (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -ne $parts[0].ToLowerInvariant()) {
             Fail "Release bundle checksum verification failed: $($parts[1])"
         }
     }
