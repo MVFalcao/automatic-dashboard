@@ -105,7 +105,7 @@ async def application_lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Universal Dashboard Agent",
-    version="0.2.0",
+    version="0.2.1",
     description="Local API for creating and managing dashboard projects.",
     lifespan=application_lifespan,
 )

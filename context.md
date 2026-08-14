@@ -140,7 +140,7 @@ preview before activation. OS notifications are optional and best effort.
 
 Release/install decisions:
 
-- The v0.2.0 release candidate upgrades the bundled frontend runtime to exact
+- The v0.2.1 release candidate uses the bundled frontend runtime at exact
   Node.js 24.18.0 LTS, uses a professional navy-blue default theme, adds
   sanitized support diagnostics, and supports transactional upgrades from the
   v0.1.0 Windows installation.

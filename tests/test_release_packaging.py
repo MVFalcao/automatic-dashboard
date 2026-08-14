@@ -10,8 +10,8 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_release_version_is_coherent() -> None:
-    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "check-version.py"), "--tag", "v0.2.0"], capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == "0.2.0"
+    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "check-version.py"), "--tag", "v0.2.1"], capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "0.2.1"
 
 
 def test_release_version_rejects_mismatched_tag() -> None:
@@ -27,7 +27,7 @@ def test_inno_setup_is_user_scoped_and_offline() -> None:
     assert "Uninstallable=no" in script
     # Inno Setup escapes embedded quotes by doubling them, not with backslashes.
     assert '\\"' not in script
-    assert '#define AppVersion "0.2.0"' in script
+    assert '#define AppVersion "0.2.1"' in script
     assert 'InstallDir ""{app}""' in script
 
 
@@ -111,7 +111,7 @@ def test_release_manifest_writer_records_artifact_metadata(tmp_path: Path) -> No
         sys.executable,
         str(ROOT / "scripts" / "write-release-manifest.py"),
         "--version",
-        "0.2.0",
+        "0.2.1",
         "--setup",
         str(setup),
         "--bundle",

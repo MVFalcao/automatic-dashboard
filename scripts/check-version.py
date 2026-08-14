@@ -30,7 +30,7 @@ if None in versions or len(versions) != 1:
 version = python_version.group(1)
 node_version = (root / ".nvmrc").read_text(encoding="utf-8").strip()
 if node_version != "24.18.0" or package.get("engines", {}).get("node") != ">=24.0.0":
-    raise SystemExit("Node runtime pin and frontend engine requirement do not match the v0.2.0 release contract")
+    raise SystemExit("Node runtime pin and frontend engine requirement do not match the v0.2.1 release contract")
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag")
 args = parser.parse_args()

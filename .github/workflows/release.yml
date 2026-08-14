@@ -17,13 +17,13 @@ on:
       version:
         description: Application version to build
         required: true
-        default: "0.2.0"
+        default: "0.2.1"
 
 permissions:
   contents: write
 
 env:
-  APP_VERSION: "0.2.0"
+  APP_VERSION: "0.2.1"
   NODE_VERSION: "24.18.0"
 
 jobs:

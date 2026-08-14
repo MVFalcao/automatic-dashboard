@@ -65,7 +65,7 @@ def runtime_versions() -> dict[str, str]:
     except importlib.metadata.PackageNotFoundError:
         playwright = "unavailable"
     return {
-        "application": "0.2.0",
+        "application": "0.2.1",
         "python": sys.version.split()[0],
         "node": _version([_node(root), "--version"]).lstrip("v"),
         "hermes": _version([str(hermes_python), "-c", "import importlib.metadata; print(importlib.metadata.version('hermes-agent'))"]),

@@ -235,7 +235,7 @@ The sanitizer automatically discovers person-specific team labels. Supply one
 `--replace` and `--forbidden-term` pair for each additional private organization,
 program, or person label found in a source template.
 
-## Windows v0.2.0 release candidate
+## Windows v0.2.1 release candidate
 
 The supported first public distribution is a per-user, offline Windows x64
 Setup.exe. It includes the application runtimes and does not require Python,
@@ -257,7 +257,7 @@ preserves configuration, the local project registry, and Hermes authentication
 state, and restores the previous installation if the upgrade fails.
 
 Release maintainers first run the `draft-release` workflow manually in
-`dry-run` mode. A `v0.2.0` tag from `main`, or an explicitly selected manual
+`dry-run` mode. A `v0.2.1` tag from `main`, or an explicitly selected manual
 `draft` run, builds and tests a draft GitHub Release containing only the
 Setup.exe, checksums, and release manifest. Workflow artifacts retain the same
 candidate plus sanitized diagnostics for 14 days. A maintainer must complete

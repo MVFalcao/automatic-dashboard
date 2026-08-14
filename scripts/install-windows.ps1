@@ -276,7 +276,7 @@ $wasUpgrade = $upgradePrepared
 @"
 {
   "schema_version": 1,
-  "application_version": "0.2.0",
+  "application_version": "0.2.1",
   "upgraded_from_existing_installation": $($wasUpgrade.ToString().ToLowerInvariant())
 }
 "@ | Set-Content -Encoding UTF8 (Join-Path $InstallDir "application-version.json")

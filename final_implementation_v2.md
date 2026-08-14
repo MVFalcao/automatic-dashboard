@@ -11,7 +11,7 @@ based only on synthetic public examples in tests and documentation.
 
 ## 1. Runtime and dependency modernization
 
-- [x] Select Node.js 24.18.0 LTS for v0.2.0.
+- [x] Select Node.js 24.18.0 LTS for v0.2.1.
 - [x] Update `.nvmrc`, frontend `engines`, lockfile metadata, CI, and bundled runtime checks together.
 - [ ] Build and test with the selected Node.js version on Windows and Linux (Linux passed; Windows runner pending).
 - [x] Confirm Next.js, React, Playwright, and native dependencies remain compatible on Linux.
@@ -33,7 +33,7 @@ based only on synthetic public examples in tests and documentation.
 
 ## 3. Installer and upgrade behavior
 
-- [ ] Test upgrades from v0.1.0 to v0.2.0 on a clean Windows VM without deleting project folders, reports, provider configuration, or Hermes authentication state.
+- [ ] Test upgrades from v0.1.0/v0.2.0 to v0.2.1 on a clean Windows VM without deleting project folders, reports, provider configuration, or Hermes authentication state.
 - [x] Preserve user-owned data while replacing only application-managed files.
 - [x] Make failed upgrades transactional and recoverable, with a synthetic failure check in release CI.
 - [x] Add an installer version marker and a readable migration summary.
@@ -94,7 +94,7 @@ based only on synthetic public examples in tests and documentation.
 
 ## 7. Documentation and release policy
 
-- [x] Update README installation instructions for the selected v0.2.0 runtimes.
+- [x] Update README installation instructions for the selected v0.2.1 runtimes.
 - [x] Add a maintainer runbook for candidate builds, tag creation, artifact inspection, and draft releases.
 - [x] Document the difference between workflow artifacts, draft releases, and published releases.
 - [x] Document the safe procedure for replacing a failed release tag.
@@ -115,14 +115,14 @@ The v2 milestone is complete only when:
 
 ## Current known follow-ups
 
-- Node.js 24.18.0 LTS is now pinned for v0.2.0; Linux build and browser tests
+- Node.js 24.18.0 LTS is now pinned for v0.2.1; Linux build and browser tests
   pass, while the Windows release runner remains an acceptance gate.
 - The release workflow now avoids binary false positives in the secret scanner;
   future changes should retain the file-level diagnostics.
 - The v0.1.0 clean-machine acceptance record remains a prerequisite for public
   publication and is not replaced by automated CI results.
 
-## v0.2.0 automated validation record
+## v0.2.1 automated validation record
 
 - 115 Python tests passed after installed-launcher, provider-setup, and project-home remediation.
 - Frontend typecheck and production build passed with verified Node.js 24.18.0.
@@ -134,7 +134,7 @@ The v2 milestone is complete only when:
 
 ## Remaining manual gates
 
-- [ ] Run the v0.2.0 release workflow on the Windows runner and inspect retained artifacts.
+- [ ] Run the v0.2.1 release workflow on the Windows runner and inspect retained artifacts.
 - [ ] Complete clean Windows 10 and Windows 11 x64 install, OAuth, report, restart, upgrade, rollback, and uninstall acceptance.
 - [ ] Record the installer checksum and VM results here.
 - [ ] Obtain explicit user approval before publishing any draft release.

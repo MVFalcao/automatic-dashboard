@@ -1,4 +1,4 @@
-# Universal Dashboard Agent v0.2.0 Release Runbook
+# Universal Dashboard Agent v0.2.1 Release Runbook
 
 ## Candidate build
 
@@ -15,14 +15,14 @@
    install/typecheck/build, the Git diff, and Windows PowerShell syntax. It does
    not build or install the Windows `.exe` from Linux.
 
-2. Confirm `main` contains version `0.2.0` everywhere:
+2. Confirm `main` contains version `0.2.1` everywhere:
 
    ```bash
-   python scripts/check-version.py --tag v0.2.0
+   python scripts/check-version.py --tag v0.2.1
    ```
 
 3. In GitHub Actions, run **draft-release** with `mode=dry-run` and
-   `version=0.2.0`. This builds and tests the installer without creating or
+   `version=0.2.1`. This builds and tests the installer without creating or
    modifying a GitHub Release.
 4. Download the workflow artifact and inspect the Setup.exe,
    `SHA256SUMS.txt`, release manifest, install/upgrade logs, and sanitized
@@ -35,7 +35,7 @@ from Windows PowerShell:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-release.ps1 `
-  -SetupPath C:\path\to\UniversalDashboardAgent-0.2.0-windows-x64-setup.exe `
+  -SetupPath C:\path\to\UniversalDashboardAgent-0.2.1-windows-x64-setup.exe `
   -BundleDir C:\path\to\dashboard-bundle
 ```
 
@@ -51,20 +51,20 @@ commit:
 ```bash
 git checkout main
 git pull --ff-only
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 The tag workflow creates a **draft** release. It never publishes it.
 
 If a build fails before a release exists, fix and merge the problem first. Only
-then replace the failed tag after confirming `gh release view v0.2.0` reports
+then replace the failed tag after confirming `gh release view v0.2.1` reports
 that no draft or published release exists:
 
 ```bash
-git tag -f v0.2.0
-git push origin :refs/tags/v0.2.0
-git push origin v0.2.0
+git tag -f v0.2.1
+git push origin :refs/tags/v0.2.1
+git push origin v0.2.1
 ```
 
 Never replace a tag that already has a draft or published release. Use a new
