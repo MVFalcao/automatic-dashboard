@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 
@@ -28,6 +29,9 @@ parser.add_argument("--playwright-version", required=True)
 parser.add_argument("--chromium-version", required=True)
 parser.add_argument("--installer-version", required=True)
 args = parser.parse_args()
+
+if not re.fullmatch(r"Inno Setup [1-9][0-9]*(?:\.[0-9]+)+", args.installer_version):
+    raise SystemExit(f"Invalid Inno Setup version: {args.installer_version}")
 
 setup = args.setup.resolve()
 bundle = args.bundle.resolve()

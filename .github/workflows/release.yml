@@ -92,8 +92,14 @@ jobs:
             $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           }
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler ISCC.exe is not available on the runner" }
-          & $iscc "/DBundleDir=$env:RUNNER_TEMP\dashboard-bundle" "/O$env:RUNNER_TEMP\setup" scripts/UniversalDashboardAgent.iss
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
+          $compilerOutput = & $iscc "/DBundleDir=$env:RUNNER_TEMP\dashboard-bundle" "/O$env:RUNNER_TEMP\setup" scripts/UniversalDashboardAgent.iss 2>&1
+          $compilerExitCode = $LASTEXITCODE
+          $compilerOutput | ForEach-Object { Write-Host $_ }
+          if ($compilerExitCode -ne 0) { throw "Inno Setup compilation failed with exit code $compilerExitCode" }
+          $versionLine = $compilerOutput | Select-String -Pattern 'Compiler engine version:\s+Inno Setup\s+([0-9]+(?:\.[0-9]+)+)' | Select-Object -First 1
+          if (-not $versionLine) { throw "Unable to detect the Inno Setup compiler version" }
+          $installerVersion = $versionLine.Matches[0].Groups[1].Value
+          "INNO_SETUP_VERSION=$installerVersion" | Add-Content $env:GITHUB_ENV
       - name: Silent Setup.exe install, upgrade, smoke test, and uninstall
         shell: pwsh
         run: |
@@ -122,9 +128,8 @@ jobs:
           $nodeVersion = node -p "process.versions.node"
           $playwrightVersion = uv run python -c "import importlib.metadata; print(importlib.metadata.version('playwright'))"
           $chromiumVersion = (Get-ChildItem "$bundle\runtime\playwright" -Directory | Select-Object -ExpandProperty Name) -join ','
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $installerVersion = (Get-Item $iscc).VersionInfo.ProductVersion
-          python scripts/write-release-manifest.py --version $env:APP_VERSION --setup $setup.FullName --bundle $bundle --output "$env:RUNNER_TEMP\release-manifest.json" --python-version $pythonVersion --node-version $nodeVersion --hermes-version "0.13.0" --playwright-version $playwrightVersion --chromium-version $chromiumVersion --installer-version "Inno Setup $installerVersion"
+          if (-not $env:INNO_SETUP_VERSION) { throw "Inno Setup compiler version was not recorded" }
+          python scripts/write-release-manifest.py --version $env:APP_VERSION --setup $setup.FullName --bundle $bundle --output "$env:RUNNER_TEMP\release-manifest.json" --python-version $pythonVersion --node-version $nodeVersion --hermes-version "0.13.0" --playwright-version $playwrightVersion --chromium-version $chromiumVersion --installer-version "Inno Setup $env:INNO_SETUP_VERSION"
           Get-FileHash $setup.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($setup.Name)" } | Set-Content "$env:RUNNER_TEMP\SHA256SUMS.txt"
       - name: Upload tested release candidate artifacts
         uses: actions/upload-artifact@v4

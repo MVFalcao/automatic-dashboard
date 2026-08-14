@@ -44,6 +44,9 @@ def test_release_workflow_has_dry_run_artifacts_and_manual_publish_gate() -> Non
     assert "$global:LASTEXITCODE = 0" in workflow
     assert "scripts\\test-windows-release.ps1" in workflow
     assert "Windows release acceptance test failed" in workflow
+    assert "Compiler engine version:" in workflow
+    assert "INNO_SETUP_VERSION" in workflow
+    assert "VersionInfo.ProductVersion" not in workflow
 
 
 def test_windows_installer_has_transactional_upgrade_guards() -> None:
@@ -130,3 +133,29 @@ def test_release_manifest_writer_records_artifact_metadata(tmp_path: Path) -> No
     assert payload["installer"]["filename"] == "setup.exe"
     assert payload["schema_version"] == 2
     assert payload["runtimes"]["node"] == "24.18.0"
+    assert payload["runtimes"]["installer"] == "Inno Setup 6.7.1"
+
+
+def test_release_manifest_writer_rejects_unknown_installer_version(tmp_path: Path) -> None:
+    setup = tmp_path / "setup.exe"
+    setup.write_bytes(b"synthetic setup")
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    output = tmp_path / "manifest.json"
+    result = subprocess.run([
+        sys.executable,
+        str(ROOT / "scripts" / "write-release-manifest.py"),
+        "--version", "0.2.1",
+        "--setup", str(setup),
+        "--bundle", str(bundle),
+        "--output", str(output),
+        "--python-version", "3.12.10",
+        "--node-version", "24.18.0",
+        "--hermes-version", "0.13.0",
+        "--playwright-version", "1.55.1",
+        "--chromium-version", "synthetic-revision",
+        "--installer-version", "Inno Setup 0.0.0.0",
+    ], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "Invalid Inno Setup version" in result.stderr
+    assert not output.exists()
