@@ -98,38 +98,13 @@ jobs:
         shell: pwsh
         run: |
           $setup = Get-ChildItem "$env:RUNNER_TEMP\setup\*.exe" | Select-Object -First 1
-          $install = "$env:RUNNER_TEMP\dashboard-agent"
-          $installLog = "$env:RUNNER_TEMP\setup-install.log"
-          $installProcess = Start-Process -FilePath $setup.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$install", "/LOG=$installLog") -Wait -PassThru
-          if ($installProcess.ExitCode -ne 0) { throw "Silent installation failed with exit code $($installProcess.ExitCode)" }
-          New-Item -ItemType Directory -Force "$install\.hermes-data" | Out-Null
-          "synthetic-preserved-auth-state" | Set-Content "$install\.hermes-data\acceptance-marker.txt"
-          '{"schema_version":1,"projects":[]}' | Set-Content "$install\projects.json"
-          $upgradeProcess = Start-Process -FilePath $setup.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$install", "/LOG=$env:RUNNER_TEMP\setup-upgrade.log") -Wait -PassThru
-          if ($upgradeProcess.ExitCode -ne 0) { throw "Silent upgrade failed with exit code $($upgradeProcess.ExitCode)" }
-          if (-not (Test-Path "$install\.hermes-data\acceptance-marker.txt")) { throw "Upgrade did not preserve Hermes authentication state" }
-          if (-not (Test-Path "$install\projects.json")) { throw "Upgrade did not preserve the local project registry" }
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$install\scripts\smoke-test-install.ps1" -InstallDir $install
-          $bundle = "$env:RUNNER_TEMP\dashboard-bundle"
-          $manifestPath = "$bundle\manifest.sha256"
-          $wheel = Get-ChildItem "$bundle\wheels\universal_dashboard_agent-*.whl" | Select-Object -First 1
-          $wheelBytes = [IO.File]::ReadAllBytes($wheel.FullName)
-          $manifestText = Get-Content $manifestPath -Raw
-          try {
-            [IO.File]::WriteAllText($wheel.FullName, "synthetic-invalid-wheel")
-            $relative = $wheel.FullName.Substring($bundle.Length + 1).Replace('\', '/')
-            $badHash = (Get-FileHash $wheel.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $updated = (Get-Content $manifestPath) | ForEach-Object { if ($_ -match "  $([regex]::Escape($relative))$") { "$badHash  $relative" } else { $_ } }
-            $updated | Set-Content $manifestPath
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$bundle\scripts\install-windows.ps1" -BundleDir $bundle -InstallDir $install
-            if ($LASTEXITCODE -eq 0) { throw "Synthetic failed upgrade unexpectedly succeeded" }
-            if (-not (Test-Path "$install\.hermes-data\acceptance-marker.txt")) { throw "Failed upgrade did not restore the previous installation" }
-            if (Test-Path "$install.upgrade-backup") { throw "Failed upgrade left a backup directory behind" }
-          } finally {
-            [IO.File]::WriteAllBytes($wheel.FullName, $wheelBytes)
-            [IO.File]::WriteAllText($manifestPath, $manifestText)
-          }
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$install\scripts\uninstall-windows.ps1" -InstallDir $install -ConfirmUninstall
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\scripts\test-windows-release.ps1" `
+            -SetupPath $setup.FullName `
+            -BundleDir "$env:RUNNER_TEMP\dashboard-bundle" `
+            -InstallDir "$env:RUNNER_TEMP\dashboard-agent" `
+            -InstallLog "$env:RUNNER_TEMP\setup-install.log" `
+            -UpgradeLog "$env:RUNNER_TEMP\setup-upgrade.log"
+          if ($LASTEXITCODE -ne 0) { throw "Windows release acceptance test failed with exit code $LASTEXITCODE" }
       - name: Scan bundle and create release metadata
         shell: pwsh
         run: |

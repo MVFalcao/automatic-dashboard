@@ -42,19 +42,39 @@ def test_release_workflow_has_dry_run_artifacts_and_manual_publish_gate() -> Non
     assert "--draft" in workflow
     assert "$releaseExists = $LASTEXITCODE -eq 0" in workflow
     assert "$global:LASTEXITCODE = 0" in workflow
-    assert "$installProcess = Start-Process" in workflow
-    assert "$upgradeProcess = Start-Process" in workflow
-    assert "-Wait -PassThru" in workflow
-    assert "$installProcess.ExitCode" in workflow
-    assert "$upgradeProcess.ExitCode" in workflow
+    assert "scripts\\test-windows-release.ps1" in workflow
+    assert "Windows release acceptance test failed" in workflow
 
 
 def test_windows_installer_has_transactional_upgrade_guards() -> None:
     installer = (ROOT / "scripts" / "install-windows.ps1").read_text(encoding="utf-8")
+    assert "[string]$Source," in installer
+    assert "if (-not $Source) { $Source = Split-Path -Parent $PSScriptRoot }" in installer
     assert ".upgrade-backup" in installer
     assert "Move-Item -LiteralPath $backupDir -Destination $InstallDir" in installer
     assert '".hermes-data", "config", "projects.json"' in installer
     assert "application-version.json" in installer
+
+
+def test_windows_release_acceptance_is_shared_and_checks_installed_files() -> None:
+    script = (ROOT / "scripts" / "test-windows-release.ps1").read_text(encoding="utf-8")
+    assert "$process = Start-Process" in script
+    assert "-Wait -PassThru" in script
+    assert "$process.ExitCode" in script
+    assert '"scripts\\smoke-test-install.ps1"' in script
+    assert '"scripts\\uninstall-windows.ps1"' in script
+    assert "Synthetic failed upgrade unexpectedly succeeded" in script
+    assert "Uninstall left the test installation behind" in script
+    preflight = (ROOT / "scripts" / "test-release-local.sh").read_text(encoding="utf-8")
+    assert "check-powershell-syntax.ps1" in preflight
+
+
+def test_inno_setup_propagates_application_install_failure() -> None:
+    script = (ROOT / "scripts" / "UniversalDashboardAgent.iss").read_text(encoding="utf-8")
+    assert "procedure CurStepChanged" in script
+    assert "ewWaitUntilTerminated" in script
+    assert "if ResultCode <> 0 then" in script
+    assert "Application installation failed with exit code" in script
 
 
 def test_release_manifest_writer_records_artifact_metadata(tmp_path: Path) -> None:

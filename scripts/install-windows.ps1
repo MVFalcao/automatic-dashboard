@@ -1,7 +1,7 @@
 # User-scoped Windows installer. Administrator rights are not required.
 [CmdletBinding()]
 param(
-    [string]$Source = (Split-Path -Parent $PSScriptRoot),
+    [string]$Source,
     [string]$InstallDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "UniversalDashboardAgent" } else { Join-Path $env:USERPROFILE "UniversalDashboardAgent" }),
     [string]$BundleDir,
     [switch]$SkipBrowser,
@@ -9,6 +9,7 @@ param(
     [switch]$NoCopy
 )
 $ErrorActionPreference = "Stop"
+if (-not $Source) { $Source = Split-Path -Parent $PSScriptRoot }
 $installDirExisted = Test-Path -LiteralPath $InstallDir
 $backupDir = "$InstallDir.upgrade-backup"
 $upgradePrepared = $false

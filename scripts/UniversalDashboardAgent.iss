@@ -23,10 +23,32 @@ SetupLogging=yes
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{tmp}\UniversalDashboardAgent-bundle"; Flags: recursesubdirs createallsubdirs ignoreversion
 
-[Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\UniversalDashboardAgent-bundle\scripts\install-windows.ps1"" -BundleDir ""{tmp}\UniversalDashboardAgent-bundle"" -InstallDir ""{app}"""; WorkingDir: "{tmp}\UniversalDashboardAgent-bundle"; Flags: waituntilterminated
-
 [Icons]
 Name: "{group}\Universal Dashboard Agent"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\dashboard-start.ps1"""; WorkingDir: "{app}"
 Name: "{group}\Configure AI provider"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\dashboard-first-run.ps1"""; WorkingDir: "{app}"
 Name: "{group}\Uninstall Universal Dashboard Agent"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\uninstall-windows.ps1"" -InstallDir ""{app}"" -ConfirmUninstall"; WorkingDir: "{app}"
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  PowerShellPath: String;
+  InstallScript: String;
+  BundlePath: String;
+  Parameters: String;
+  ResultCode: Integer;
+begin
+  if CurStep <> ssPostInstall then
+    exit;
+
+  PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  BundlePath := ExpandConstant('{tmp}\UniversalDashboardAgent-bundle');
+  InstallScript := BundlePath + '\scripts\install-windows.ps1';
+  Parameters := '-NoProfile -ExecutionPolicy Bypass -File "' + InstallScript +
+    '" -BundleDir "' + BundlePath + '" -InstallDir "' + ExpandConstant('{app}') + '"';
+
+  if not Exec(PowerShellPath, Parameters, BundlePath, SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then
+    RaiseException('Unable to start the application installer: ' + SysErrorMessage(ResultCode));
+  if ResultCode <> 0 then
+    RaiseException(Format('Application installation failed with exit code %d. Review the Setup log.', [ResultCode]));
+end;
