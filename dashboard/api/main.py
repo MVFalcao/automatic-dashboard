@@ -4,6 +4,7 @@ from uuid import UUID
 
 import os
 import json
+import httpx
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
@@ -18,7 +19,7 @@ from dashboard.api.previews import router as previews_router
 from dashboard.api.reports import router as reports_router
 from dashboard.api.projects import project_repository, router as projects_router
 from dashboard.api.schedules import schedule_runner, schedule_service
-from dashboard.api.hermes import router as hermes_router
+from dashboard.api.hermes import restore_active_api_provider, router as hermes_router
 from dashboard.api.api_sources import router as api_sources_router
 from dashboard.api.imports import router as imports_router
 from dashboard.api.schedules import router as schedules_router
@@ -87,6 +88,7 @@ class PreviewDraft(BaseModel):
 @asynccontextmanager
 async def application_lifespan(_: FastAPI):
     artifact_store.start()
+    restore_active_api_provider()
     managed_hermes.start()
     if schedule_runner.executor is None:
         schedule_runner.executor = ProductionPipelineExecutor()
@@ -297,21 +299,33 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
             })
         client = managed_hermes.client
         if client is None:
-            raise HTTPException(status_code=503, detail="Hermes is not ready. Connect a provider or follow the runtime remediation shown in status.")
+            raise HTTPException(status_code=503, detail={
+                "code": "provider_not_ready",
+                "message": "Hermes is not ready. Connect an AI provider and try again.",
+                "fields": [{"field": "provider", "message": "Choose a provider and connect its API key."}],
+            })
         allowed_sections = {"summary", "distribution", "details"}
         for attempt in range(2):
             try:
-                raw = client.chat(
-                    model="hermes-agent",
-                    messages=[{"role": "user", "content": json.dumps({
-                        "instruction": "Return one strict JSON object with accent_color, chart_type, section_order, and terminology only. Include every section exactly once.",
-                        "feedback": payload.feedback,
-                        "current": payload.model_dump(exclude={"feedback"}),
-                        "required_sections": sorted(allowed_sections),
-                        "repair_attempt": attempt == 1,
-                    }, ensure_ascii=False)}],
-                    response_format={"type": "json_object"},
-                )
+                try:
+                    raw = client.chat(
+                        model="hermes-agent",
+                        messages=[{"role": "user", "content": json.dumps({
+                            "instruction": "Return one strict JSON object with accent_color, chart_type, section_order, and terminology only. Include every section exactly once.",
+                            "feedback": payload.feedback,
+                            "current": payload.model_dump(exclude={"feedback"}),
+                            "required_sections": sorted(allowed_sections),
+                            "repair_attempt": attempt == 1,
+                        }, ensure_ascii=False)}],
+                        response_format={"type": "json_object"},
+                    )
+                except httpx.HTTPError as exc:
+                    support_events.record("hermes_provider_unavailable", level="WARNING", details={"code": "provider_unavailable", "component": "review"})
+                    raise HTTPException(status_code=503, detail={
+                        "code": "provider_unavailable",
+                        "message": "No working AI provider is available. Connect a provider in this review screen and try again.",
+                        "fields": [{"field": "provider", "message": "Check the API key, provider access, and network connection."}],
+                    }) from exc
                 content = raw["choices"][0]["message"]["content"]
                 proposed = PreviewDraftRequest.model_validate_json(content).model_copy(update={"feedback": None, "feedback_non_confidential": False})
                 if set(proposed.section_order) != allowed_sections or len(proposed.section_order) != len(allowed_sections):
@@ -319,6 +333,10 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
                 payload = proposed
                 hermes_applied = True
                 break
+            except HTTPException:
+                # Provider/runtime failures already carry actionable status and
+                # must not be mistaken for repairable structured JSON.
+                raise
             except Exception as exc:
                 if attempt == 1:
                     support_events.record("hermes_draft_invalid", level="WARNING", details={"attempt": 2, "code": "invalid_hermes_draft", "component": "review"})

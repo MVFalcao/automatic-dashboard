@@ -21,6 +21,7 @@ class ManagedHermesService:
         self.gateway: HermesGateway | None = None
         self.client: HermesClient | None = None
         self.home: Path | None = None
+        self._provider_environment: dict[str, str] = {}
         self._status: dict[str, Any] = {
             "managed": True, "package": HERMES_PACKAGE, "version": HERMES_VERSION,
             "process_running": False, "gateway_authenticated": False,
@@ -55,7 +56,11 @@ class ManagedHermesService:
                 cors_origins=tuple(origin for origin in os.environ.get("DASHBOARD_ALLOWED_ORIGINS", "").split(",") if origin),
             )
             gateway = HermesGateway(credentials)
-            gateway_process = gateway.start(config, runtime.spec.hermes_executable, extra_environment={"HERMES_HOME": str(hermes_home)})
+            gateway_process = gateway.start(
+                config,
+                runtime.spec.hermes_executable,
+                extra_environment={"HERMES_HOME": str(hermes_home), **self._provider_environment},
+            )
             client = HermesClient(gateway_process.address, secret)
             deadline = time.monotonic() + 8
             last_error: Exception | None = None
@@ -85,6 +90,23 @@ class ManagedHermesService:
             self.client = None
             self.home = None
             self._status.update({"process_running": False, "gateway_authenticated": False, "healthy": False, "ready": False})
+
+    def set_provider_environment(self, environment: dict[str, str]) -> None:
+        """Keep one provider credential in memory for child-process injection."""
+
+        allowed = {"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"}
+        if set(environment) - allowed or any(not value for value in environment.values()):
+            raise ValueError("Unsupported or empty provider environment")
+        self._provider_environment = dict(environment)
+
+    def configure_provider(self, environment: dict[str, str]) -> None:
+        """Restart the managed gateway with a newly selected provider."""
+
+        self.stop()
+        self.set_provider_environment(environment)
+        self.start()
+        if not self.status().get("ready"):
+            raise RuntimeError("Managed Hermes did not restart with the selected provider")
 
     def _set(self, **values: Any) -> None:
         with self._lock:

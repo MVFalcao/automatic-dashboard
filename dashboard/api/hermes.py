@@ -25,7 +25,7 @@ class ProviderSetupRequest(BaseModel):
 class ProviderKeySetupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    project_id: UUID
+    project_id: UUID | None = None
     provider: ProviderName
     account_id: str = Field(min_length=1, max_length=160)
     model: str = Field(min_length=1, max_length=200)
@@ -60,6 +60,39 @@ class CodexOAuthStatus(BaseModel):
 
 router = APIRouter(prefix="/api", tags=["hermes"])
 provider_registry = ProviderRegistry()
+_active_provider_reference = CredentialReference(
+    service="universal-dashboard-agent",
+    account="active-api-provider",
+)
+
+
+def _provider_environment(connection: ProviderConnection, secret: str) -> dict[str, str]:
+    variable = provider_registry.setup(connection.provider).api_key_environment_variable
+    if not variable:
+        raise ValueError("The selected provider does not support API-key setup")
+    return {variable: secret}
+
+
+def restore_active_api_provider() -> None:
+    """Restore secret-free provider metadata and inject its key from the OS store."""
+
+    try:
+        store = KeyringCredentialStore()
+        serialized = store.get(_active_provider_reference)
+        if not serialized:
+            return
+        connection = ProviderConnection.model_validate_json(serialized)
+        if not isinstance(connection.credential, CredentialReference):
+            return
+        secret = store.get(connection.credential)
+        if not secret:
+            return
+        managed_hermes.set_provider_environment(_provider_environment(connection, secret))
+        provider_registry.connect(connection)
+    except Exception:
+        # Startup diagnostics report provider readiness without exposing
+        # keyring/backend details. A user can reconnect safely from the UI.
+        return
 
 
 @router.get("/providers", response_model=list[ProviderConnection])
@@ -94,13 +127,15 @@ def connect_provider(payload: ProviderSetupRequest) -> ProviderConnection:
 
 @router.post("/providers/connect-api-key", response_model=ProviderConnection, status_code=201)
 def connect_provider_api_key(payload: ProviderKeySetupRequest) -> ProviderConnection:
-    try:
-        project = project_repository.get(payload.project_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Project not found") from exc
+    project = None
+    if payload.project_id is not None:
+        try:
+            project = project_repository.get(payload.project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
     reference = CredentialReference(
         service="universal-dashboard-agent-provider",
-        account=f"{project.id}:{payload.provider.value}:{payload.account_id}",
+        account=f"{project.id if project else 'local'}:{payload.provider.value}:{payload.account_id}",
     )
     try:
         store = KeyringCredentialStore()
@@ -116,11 +151,24 @@ def connect_provider_api_key(payload: ProviderKeySetupRequest) -> ProviderConnec
         capabilities=payload.capabilities,
         token_estimate=TokenEstimate(input_tokens=payload.estimated_input_tokens, output_tokens=payload.estimated_output_tokens),
     )
-    repository = ProjectWorkflowRepository(project.project_directory)
-    identifier = f"{payload.provider.value}-{payload.account_id}"
-    _atomic_json(repository._path("providers", identifier), connection.model_dump(mode="json"))
-    if identifier not in project.provider_ids:
-        project_repository.save(project.model_copy(update={"provider_ids": [*project.provider_ids, identifier]}))
+    if project is not None:
+        repository = ProjectWorkflowRepository(project.project_directory)
+        identifier = f"{payload.provider.value}-{payload.account_id}"
+        _atomic_json(repository._path("providers", identifier), connection.model_dump(mode="json"))
+        if identifier not in project.provider_ids:
+            project_repository.save(project.model_copy(update={"provider_ids": [*project.provider_ids, identifier]}))
+    try:
+        store.put(_active_provider_reference, connection.model_dump_json())
+        managed_hermes.configure_provider(_provider_environment(connection, payload.api_key.get_secret_value()))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "provider_start_failed",
+                "message": "The provider was stored securely but Hermes could not start it. Restart the application and try again.",
+                "fields": [{"field": "provider", "message": "Review provider connectivity and model availability."}],
+            },
+        ) from exc
     return provider_registry.connect(connection)
 
 

@@ -48,7 +48,9 @@ test.afterAll(async () => {
 
 async function completeJourney(page: import("@playwright/test").Page, language: "en" | "pt") {
   await page.goto("/");
-  if (language === "en") await page.getByRole("button", { name: "EN", exact: true }).click();
+  await page.getByRole("button", { name: language === "pt" ? "PT" : "EN", exact: true }).click();
+  await expect(page.getByRole("heading", { name: language === "pt" ? "Seus projetos de dashboard" : "Your dashboard projects" })).toBeVisible();
+  await page.getByRole("button", { name: language === "pt" ? "Criar novo projeto" : "Create new project" }).click();
   const answers = language === "pt"
     ? ["Acompanhar resultados", "Equipe local", "Não", "Web, Excel e PDF", resolve(state, "projeto"), "Sim"]
     : ["Track outcomes", "Local team", "No", "Web, Excel and PDF", resolve(state, "project"), "Yes"];
@@ -64,6 +66,8 @@ async function completeJourney(page: import("@playwright/test").Page, language: 
   }
   await expect(page.getByRole("heading", { name: language === "pt" ? "Revisão sintética do dashboard" : "Synthetic dashboard review" })).toBeVisible();
   await expect(page.getByText(language === "pt" ? /servidor gerou este documento/ : /server generated this document/).first()).toBeVisible();
+  await expect(page.getByText(language === "pt" ? "Conectar um provider de IA" : "Connect an AI provider", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: language === "pt" ? "Pedir ao Hermes" : "Ask Hermes" })).toBeDisabled();
   const url = page.url();
   await restartApi();
   await page.goto(url);
@@ -84,6 +88,13 @@ async function completeJourney(page: import("@playwright/test").Page, language: 
   await page.getByRole("button", { name: language === "pt" ? "Salvar controles como rascunho" : "Save controls as draft" }).click();
   await expect(page.getByText(/v1/)).toBeVisible();
   await expect(page.getByText(language === "pt" ? /especificação ativa aprovada não foi alterada/ : /active approved specification is unchanged/)).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: language === "pt" ? "Seus projetos de dashboard" : "Your dashboard projects" })).toBeVisible();
+  const projectName = language === "pt" ? "Acompanhar resultados" : "Track outcomes";
+  const projectCard = page.locator(".project-card").filter({ hasText: projectName });
+  await expect(projectCard).toBeVisible();
+  await projectCard.getByRole("button", { name: language === "pt" ? "Abrir projeto" : "Open project" }).click();
+  await expect(page.getByRole("heading", { name: language === "pt" ? "Operações do projeto" : "Project operations" })).toBeVisible();
 }
 
 test("@en complete English journey across API restart", async ({ page }) => completeJourney(page, "en"));

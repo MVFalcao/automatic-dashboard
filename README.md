@@ -129,6 +129,18 @@ the target OS to enable its credential backend.
 
 The local setup API exposes provider setup/status at `/api/providers` and
 `/api/hermes/status`; raw secrets are rejected by the strict request models.
+The synthetic review screen allows Gemini, Claude, or DeepSeek API-key setup
+before a project exists, so Hermes revision is never presented as available
+without an in-app provider path. The key is written directly to the operating
+system credential store, only a secret-free provider reference is retained,
+and the managed Hermes gateway is restarted with the selected credential in
+child-process memory. Provider transport failures are reported as recoverable
+provider errors rather than invalid dashboard drafts.
+The browser opens on a project home screen rather than immediately starting a
+new intake. It lists the local registry, provides an explicit **Create new
+project** action, and reopens an existing project's checksum-verified active
+specification and operations without copying project data into the application
+installation.
 The gateway follows Hermes' documented localhost API server configuration:
 <https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server/>.
 
@@ -156,6 +168,11 @@ Every launch is loopback-only (`127.0.0.1`), uses a narrow web-origin CORS list,
 and enables local bearer authentication. The launcher creates that bearer token
 in process memory for the session; it is not written to project configuration.
 The generated `config/local.env` contains only non-secret host and port values.
+On Windows, the launcher recovers from a partial prior shutdown by stopping only
+stale processes whose executable belongs to the application installation. It
+never terminates an unrelated process using the same port. Startup output is
+written to `logs/api.stdout.log`, `logs/api.stderr.log`, `logs/web.stdout.log`,
+and `logs/web.stderr.log` inside the application directory for troubleshooting.
 Read-only diagnostics are available with `python -m
 automation.release.diagnostics --json`. Release smoke tests are provided by
 `scripts/smoke-test-install.sh` and `scripts/smoke-test-install.ps1`.

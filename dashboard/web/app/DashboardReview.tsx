@@ -19,11 +19,12 @@ type Approval = { approval_id: string; sections: Record<string, { section_id: st
 type Workspace = { document: Document; approval: Approval; project_id: string | null };
 type Draft = { version: number; accent_color: string; chart_type: ChartKind; section_order: string[]; terminology: Record<string, string>; feedback_applied_by_hermes: boolean };
 type Diagnostics = { diagnostic_id: string; ok: boolean; components: Record<string, { ok: boolean; remediation: string | null }> };
+type RuntimeStatus = { ready: boolean; provider_ready?: boolean };
 type Props = { language: Language; sessionId: string; context: Record<string, string> };
 
 const labels = {
-  en: { title: "Synthetic dashboard review", notice: "All values are invented. The server generated this document; approvals apply to every selected output.", approve: "Approve section", revise: "Request revision", feedback: "Describe the change", feedbackSafe: "This feedback is non-confidential and may be sent to Hermes", apply: "Ask Hermes", save: "Save controls as draft", activate: "Create project and activate approved specification", saved: "Project saved and ready for source setup.", color: "Accent color", chart: "Chart type", approved: "Approved", pending: "Pending review", rejected: "Revision requested", blocked: "Blocked by dependency", runtime: "Hermes runtime", loading: "Loading the server-generated preview…", retry: "Try again", draft: "Draft", noMutation: "The active approved specification is unchanged.", error: "The preview could not be loaded.", guidance: "Check that the local API and Hermes runtime are running, then retry.", pathError: "Enter an absolute local project path, such as C:\\Users\\Name\\Documents\\DashboardProject.", diagnostics: "Diagnostics", downloadSupport: "Download sanitized support bundle" },
-  pt: { title: "Revisão sintética do dashboard", notice: "Todos os valores são inventados. O servidor gerou este documento; as aprovações valem para todas as saídas.", approve: "Aprovar seção", revise: "Solicitar revisão", feedback: "Descreva a alteração", feedbackSafe: "Este feedback não é confidencial e pode ser enviado ao Hermes", apply: "Pedir ao Hermes", save: "Salvar controles como rascunho", activate: "Criar projeto e ativar especificação aprovada", saved: "Projeto salvo e pronto para configurar a fonte.", color: "Cor de destaque", chart: "Tipo de gráfico", approved: "Aprovado", pending: "Aguardando revisão", rejected: "Revisão solicitada", blocked: "Bloqueado por dependência", runtime: "Runtime Hermes", loading: "Carregando a prévia gerada pelo servidor…", retry: "Tentar novamente", draft: "Rascunho", noMutation: "A especificação ativa aprovada não foi alterada.", error: "Não foi possível carregar a prévia.", guidance: "Verifique se a API local e o Hermes estão ativos e tente novamente.", pathError: "Informe um caminho local absoluto, como C:\\Users\\Nome\\Documents\\ProjetoDashboard.", diagnostics: "Diagnósticos", downloadSupport: "Baixar pacote de suporte sanitizado" },
+  en: { title: "Synthetic dashboard review", notice: "All values are invented. The server generated this document; approvals apply to every selected output.", approve: "Approve section", revise: "Request revision", feedback: "Describe the change", feedbackSafe: "This feedback is non-confidential and may be sent to Hermes", apply: "Ask Hermes", save: "Save controls as draft", activate: "Create project and activate approved specification", saved: "Project saved and ready for source setup.", color: "Accent color", chart: "Chart type", approved: "Approved", pending: "Pending review", rejected: "Revision requested", blocked: "Blocked by dependency", runtime: "Hermes runtime", loading: "Loading the server-generated preview…", retry: "Try again", draft: "Draft", noMutation: "The active approved specification is unchanged.", error: "The preview could not be loaded.", guidance: "Check that the local API and Hermes runtime are running, then retry.", pathError: "Enter an absolute local project path, such as C:\\Users\\Name\\Documents\\DashboardProject.", diagnostics: "Diagnostics", downloadSupport: "Download sanitized support bundle", providerSetup: "Connect an AI provider", providerNeeded: "Connect a provider before asking Hermes for a revision.", apiKey: "API key (stored in the Windows credential vault)", connectProvider: "Connect provider", providerConnected: "Provider connected. Hermes revisions are available." },
+  pt: { title: "Revisão sintética do dashboard", notice: "Todos os valores são inventados. O servidor gerou este documento; as aprovações valem para todas as saídas.", approve: "Aprovar seção", revise: "Solicitar revisão", feedback: "Descreva a alteração", feedbackSafe: "Este feedback não é confidencial e pode ser enviado ao Hermes", apply: "Pedir ao Hermes", save: "Salvar controles como rascunho", activate: "Criar projeto e ativar especificação aprovada", saved: "Projeto salvo e pronto para configurar a fonte.", color: "Cor de destaque", chart: "Tipo de gráfico", approved: "Aprovado", pending: "Aguardando revisão", rejected: "Revisão solicitada", blocked: "Bloqueado por dependência", runtime: "Runtime Hermes", loading: "Carregando a prévia gerada pelo servidor…", retry: "Tentar novamente", draft: "Rascunho", noMutation: "A especificação ativa aprovada não foi alterada.", error: "Não foi possível carregar a prévia.", guidance: "Verifique se a API local e o Hermes estão ativos e tente novamente.", pathError: "Informe um caminho local absoluto, como C:\\Users\\Nome\\Documents\\ProjetoDashboard.", diagnostics: "Diagnósticos", downloadSupport: "Baixar pacote de suporte sanitizado", providerSetup: "Conectar um provider de IA", providerNeeded: "Conecte um provider antes de pedir uma revisão ao Hermes.", apiKey: "Chave da API (armazenada no cofre de credenciais do Windows)", connectProvider: "Conectar provider", providerConnected: "Provider conectado. As revisões do Hermes estão disponíveis." },
 };
 
 function problemMessage(problem: unknown, fallback: string): string {
@@ -80,7 +81,10 @@ export default function DashboardReview({ language, sessionId, context }: Props)
   const [order, setOrder] = useState<string[]>([]);
   const [feedback, setFeedback] = useState("");
   const [feedbackSafe, setFeedbackSafe] = useState(false);
-  const [runtime, setRuntime] = useState<Record<string, unknown>>({ ready: false });
+  const [runtime, setRuntime] = useState<RuntimeStatus>({ ready: false, provider_ready: false });
+  const [provider, setProvider] = useState("gemini");
+  const [apiKey, setApiKey] = useState("");
+  const [providerStatus, setProviderStatus] = useState("");
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -104,7 +108,7 @@ export default function DashboardReview({ language, sessionId, context }: Props)
       setDraft(saved);
       setColor(saved?.accent_color ?? "#1D4ED8"); setKind(saved?.chart_type ?? "bar");
       setOrder(saved?.section_order ?? [...preview.document.specification.sections].sort((a, b) => a.order - b.order).map((item) => item.id));
-      setRuntime(runtimeResponse.ok ? await runtimeResponse.json() : { ready: false });
+      setRuntime(runtimeResponse.ok ? await runtimeResponse.json() as RuntimeStatus : { ready: false, provider_ready: false });
       setDiagnostics(diagnosticsResponse.ok ? await diagnosticsResponse.json() as Diagnostics : null);
     } catch { setError(`${t.error} ${t.guidance}`); }
   };
@@ -134,6 +138,19 @@ export default function DashboardReview({ language, sessionId, context }: Props)
       setColor(next.accent_color); setKind(next.chart_type); setOrder(next.section_order);
       await load();
     } catch (problem) { setError(problem instanceof Error ? problem.message : t.guidance); } finally { setBusy(false); }
+  };
+  const connectProvider = async () => {
+    setBusy(true); setError(""); setProviderStatus("");
+    try {
+      const response = await fetch("/backend/api/providers/connect-api-key", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, account_id: "local", model: "managed-default", api_key: apiKey, capabilities: ["conversation", "structured_output", "insights"] }),
+      });
+      if (!response.ok) { const problem = await response.json(); throw new Error(problemMessage(problem, t.guidance)); }
+      setApiKey(""); setProviderStatus(t.providerConnected);
+      await load();
+    } catch (problem) { setError(problem instanceof Error ? problem.message : t.guidance); }
+    finally { setBusy(false); }
   };
   const activate = async () => {
     const directory = context.project_location;
@@ -184,7 +201,8 @@ export default function DashboardReview({ language, sessionId, context }: Props)
   return <main className="review-shell" style={{ "--accent": color } as React.CSSProperties}>
     <aside className="review-sidebar">
       <p className="eyebrow">Dashboard Agent</p><h1>{t.title}</h1><p>{t.notice}</p>
-      <p className={`runtime-status ${runtime.ready ? "approved" : "revision"}`}>{t.runtime}: {runtime.ready ? "ready" : "unavailable"}</p>
+      <p className={`runtime-status ${runtime.ready && runtime.provider_ready ? "approved" : "revision"}`}>{t.runtime}: {runtime.ready && runtime.provider_ready ? "ready" : "provider required"}</p>
+      <details open={!runtime.provider_ready} className="provider-setup"><summary>{t.providerSetup}</summary><p>{runtime.provider_ready ? t.providerConnected : t.providerNeeded}</p><label>Provider<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="gemini">Gemini</option><option value="claude">Claude</option><option value="deepseek">DeepSeek</option></select></label><label>{t.apiKey}<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} /></label><button disabled={busy || !apiKey.trim()} onClick={() => void connectProvider()}>{t.connectProvider}</button>{providerStatus && <p className="success">{providerStatus}</p>}</details>
       <details className="review-diagnostics"><summary>{t.diagnostics}</summary>{diagnostics && Object.entries(diagnostics.components).map(([name, component]) => <p key={name}>{name}: {component.ok ? "OK" : component.remediation}</p>)}<button onClick={() => void downloadSupport()}>{t.downloadSupport}</button></details>
       {draft && <p>{t.draft} v{draft.version}. {t.noMutation}</p>}
       <dl>{Object.entries(context).slice(0, 3).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>)}</dl>
@@ -193,7 +211,7 @@ export default function DashboardReview({ language, sessionId, context }: Props)
       <button onClick={() => void saveDraft(false)} disabled={busy}>{t.save}</button>
       <label>{t.feedback}<textarea rows={4} value={feedback} onChange={(event) => setFeedback(event.target.value)} /></label>
       <label><input type="checkbox" checked={feedbackSafe} onChange={(event) => setFeedbackSafe(event.target.checked)} /> {t.feedbackSafe}</label>
-      <button className="primary" disabled={busy || !feedback.trim() || !feedbackSafe || !runtime.ready} onClick={() => void saveDraft(true)}>{t.apply}</button>
+      <button className="primary" disabled={busy || !feedback.trim() || !feedbackSafe || !runtime.ready || !runtime.provider_ready} onClick={() => void saveDraft(true)}>{t.apply}</button>
       {approval.ready_to_activate && !projectId && <button className="primary" disabled={busy || !context.project_location} onClick={() => void activate()}>{t.activate}</button>}
       {projectId && <p className="success">{t.saved}</p>}
       {error && <p className="error" role="alert">{error}</p>}

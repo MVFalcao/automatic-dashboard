@@ -201,21 +201,70 @@ $hermesExecutable = Join-Path $hermes "Scripts\hermes.exe"
 `$env:DASHBOARD_HERMES_RUNTIME = '$hermes'
 `$env:DASHBOARD_HERMES_HOME = '$InstallDir\.hermes-data'
 `$env:DASHBOARD_API_ORIGIN = 'http://127.0.0.1:8000'
-if (Test-NetConnection -ComputerName 127.0.0.1 -Port 8000 -InformationLevel Quiet) {
-  try { if ((Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8000/health').StatusCode -eq 200) { Start-Process 'http://127.0.0.1:3000'; exit 0 } } catch { }
+`$logDir = Join-Path '$InstallDir' 'logs'
+New-Item -ItemType Directory -Force -Path `$logDir | Out-Null
+`$apiStdout = Join-Path `$logDir 'api.stdout.log'
+`$apiStderr = Join-Path `$logDir 'api.stderr.log'
+`$webStdout = Join-Path `$logDir 'web.stdout.log'
+`$webStderr = Join-Path `$logDir 'web.stderr.log'
+
+function Test-DashboardEndpoint([string]`$Uri) {
+  try { return (Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 `$Uri).StatusCode -eq 200 } catch { return `$false }
 }
-`$api = Start-Process -FilePath '$venvPython' -ArgumentList '-m','uvicorn','dashboard.api.main:app','--host','127.0.0.1','--port','8000' -WorkingDirectory '$InstallDir' -PassThru
+function Open-DashboardBrowser {
+  if (`$env:DASHBOARD_SUPPRESS_BROWSER -ne 'true') { Start-Process 'http://127.0.0.1:3000' }
+}
+
+if ((Test-DashboardEndpoint 'http://127.0.0.1:8000/health') -and (Test-DashboardEndpoint 'http://127.0.0.1:3000/backend/api/hermes/status')) {
+  Open-DashboardBrowser
+  exit 0
+}
+
+`$apiPortUsed = Test-NetConnection -ComputerName 127.0.0.1 -Port 8000 -InformationLevel Quiet -WarningAction SilentlyContinue
+`$webPortUsed = Test-NetConnection -ComputerName 127.0.0.1 -Port 3000 -InformationLevel Quiet -WarningAction SilentlyContinue
+if (`$apiPortUsed -or `$webPortUsed) {
+  # A previous partial launch can leave one managed process behind. Stop only
+  # executables owned by this installation, never an unrelated application.
+  @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    `$_.ExecutablePath -and `$_.ExecutablePath.StartsWith('$InstallDir', [StringComparison]::OrdinalIgnoreCase)
+  }) | ForEach-Object { Stop-Process -Id `$_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Seconds 1
+}
+foreach (`$port in @(8000, 3000)) {
+  if (Test-NetConnection -ComputerName 127.0.0.1 -Port `$port -InformationLevel Quiet -WarningAction SilentlyContinue) {
+    throw "Port `$port is already used by another application. Close it and start Universal Dashboard Agent again."
+  }
+}
+
+Remove-Item -LiteralPath `$apiStdout, `$apiStderr, `$webStdout, `$webStderr -Force -ErrorAction SilentlyContinue
+`$api = Start-Process -FilePath '$venvPython' -ArgumentList '-m','uvicorn','dashboard.api.main:app','--host','127.0.0.1','--port','8000' -WorkingDirectory '$InstallDir' -RedirectStandardOutput `$apiStdout -RedirectStandardError `$apiStderr -PassThru
+`$web = `$null
 try {
-  for (`$i = 0; `$i -lt 60; `$i++) { try { if ((Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8000/health').StatusCode -eq 200) { break } } catch { Start-Sleep -Milliseconds 250 } }
-  Push-Location '$InstallDir\dashboard\web'
+  `$apiReady = `$false
+  for (`$i = 0; `$i -lt 120; `$i++) {
+    if (Test-DashboardEndpoint 'http://127.0.0.1:8000/health') { `$apiReady = `$true; break }
+    if (`$api.HasExited) { break }
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not `$apiReady) { throw "API did not start. Review `$apiStderr" }
+
   `$env:HOSTNAME='127.0.0.1'; `$env:PORT='3000'
-  if (Test-Path '.next\standalone\server.js') { `$web = Start-Process -FilePath '$node' -ArgumentList '.next\standalone\server.js' -WorkingDirectory '$InstallDir\dashboard\web' -PassThru -WindowStyle Hidden }
-  else { `$web = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','start','--','-H','127.0.0.1','-p','3000' -WorkingDirectory '$InstallDir\dashboard\web' -PassThru -WindowStyle Hidden }
-  for (`$i = 0; `$i -lt 60; `$i++) { try { if ((Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3000').StatusCode -eq 200) { break } } catch { Start-Sleep -Milliseconds 250 } }
-  Start-Process 'http://127.0.0.1:3000'
+  `$standaloneDir = '$InstallDir\dashboard\web\.next\standalone'
+  if (Test-Path (Join-Path `$standaloneDir 'server.js')) {
+    `$web = Start-Process -FilePath '$node' -ArgumentList 'server.js' -WorkingDirectory `$standaloneDir -RedirectStandardOutput `$webStdout -RedirectStandardError `$webStderr -PassThru -WindowStyle Hidden
+  } else {
+    `$web = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','start','--','-H','127.0.0.1','-p','3000' -WorkingDirectory '$InstallDir\dashboard\web' -RedirectStandardOutput `$webStdout -RedirectStandardError `$webStderr -PassThru -WindowStyle Hidden
+  }
+  `$webReady = `$false
+  for (`$i = 0; `$i -lt 120; `$i++) {
+    if (Test-DashboardEndpoint 'http://127.0.0.1:3000/backend/api/hermes/status') { `$webReady = `$true; break }
+    if (`$web.HasExited) { break }
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not `$webReady) { throw "Browser UI did not start or could not reach the API. Review `$webStderr and `$apiStderr" }
+  Open-DashboardBrowser
   Wait-Process -Id `$web.Id
 } finally {
-  Pop-Location
   if (`$web) { Stop-Process -Id `$web.Id -Force -ErrorAction SilentlyContinue }
   Stop-Process -Id `$api.Id -Force -ErrorAction SilentlyContinue
   `$env:HERMES_HOME = '$InstallDir\.hermes-data'

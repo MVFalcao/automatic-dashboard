@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import DashboardReview from "./DashboardReview";
+import ExistingProject, { ExistingProjectWorkspace } from "./ExistingProject";
 
 type Language = "en" | "pt";
 type IntakeStep = "goal" | "audience" | "reference_sample" | "outputs" | "project_location" | "confirmation" | "complete";
@@ -62,6 +63,11 @@ const copy = {
     approval: "Every proposal requires your approval before it can be used.",
     error: "The request could not be completed. Please try again.",
     nonConfidential: "This answer is non-confidential and may be saved for restart",
+    projects: "Your dashboard projects",
+    projectsIntro: "Open an existing project or start a new guided setup.",
+    newProject: "Create new project",
+    openProject: "Open project",
+    noProjects: "No projects have been created yet.",
   },
   pt: {
     eyebrow: "Área de trabalho local",
@@ -85,6 +91,11 @@ const copy = {
     approval: "Toda proposta exige sua aprovação antes de ser utilizada.",
     error: "Não foi possível concluir a solicitação. Tente novamente.",
     nonConfidential: "Esta resposta não é confidencial e pode ser salva para reinício",
+    projects: "Seus projetos de dashboard",
+    projectsIntro: "Abra um projeto existente ou inicie uma nova configuração guiada.",
+    newProject: "Criar novo projeto",
+    openProject: "Abrir projeto",
+    noProjects: "Nenhum projeto foi criado ainda.",
   },
 };
 
@@ -101,6 +112,8 @@ export default function SetupPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
+  const [view, setView] = useState<"home" | "create" | "project">("home");
+  const [openedProject, setOpenedProject] = useState<ExistingProjectWorkspace | null>(null);
   const text = useMemo(() => copy[language], [language]);
 
   useEffect(() => {
@@ -108,9 +121,31 @@ export default function SetupPage() {
     fetch("/backend/api/projects", { cache: "no-store" }).then((response) => response.ok ? response.json() : []).then(setProjects).catch(() => setProjects([]));
     const identifier = new URLSearchParams(window.location.search).get("intake");
     if (identifier) fetch(`/backend/api/intake/${identifier}`, { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) throw new Error(); const restored = await response.json() as IntakeResponse; setSession(restored); setLanguage(restored.language);
+      if (!response.ok) throw new Error(); const restored = await response.json() as IntakeResponse; setSession(restored); setLanguage(restored.language); setView("create");
+    }).catch(() => setError(copy[language].error));
+    const projectIdentifier = new URLSearchParams(window.location.search).get("project");
+    if (projectIdentifier) fetch(`/backend/api/projects/${projectIdentifier}/workspace`, { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error(); const workspace = await response.json() as ExistingProjectWorkspace; setOpenedProject(workspace); setLanguage(workspace.project.language); setView("project");
     }).catch(() => setError(copy[language].error));
   }, []);
+
+  const openProject = async (identifier: string) => {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/backend/api/projects/${identifier}/workspace`, { cache: "no-store" });
+      if (!response.ok) throw new Error();
+      const workspace = await response.json() as ExistingProjectWorkspace;
+      setOpenedProject(workspace); setLanguage(workspace.project.language); setView("project");
+      window.history.replaceState(null, "", `?project=${identifier}`);
+    } catch { setError(text.error); }
+    finally { setBusy(false); }
+  };
+
+  const backToProjects = () => {
+    setSession(null); setOpenedProject(null); setView("home"); setError("");
+    window.history.replaceState(null, "", window.location.pathname);
+    fetch("/backend/api/projects", { cache: "no-store" }).then((response) => response.ok ? response.json() : []).then(setProjects).catch(() => setProjects([]));
+  };
 
   const start = async (): Promise<IntakeResponse> => {
     const response = await fetch("/backend/api/intake", {
@@ -174,6 +209,20 @@ export default function SetupPage() {
   const isConfirmationStep = session?.step === "confirmation";
   const isProjectLocationStep = session?.step === "project_location";
 
+  if (view === "project" && openedProject) {
+    return <ExistingProject workspace={openedProject} language={language} onBack={backToProjects} />;
+  }
+
+  if (view === "home" && !session) {
+    return <main className="shell"><section className="panel project-home" aria-labelledby="projects-title">
+      <div className="language-switch" aria-label="Language"><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button><button className={language === "pt" ? "active" : ""} onClick={() => setLanguage("pt")}>PT</button></div>
+      <p className="eyebrow">Dashboard Agent</p><h1 id="projects-title">{text.projects}</h1><p>{text.projectsIntro}</p>
+      <button className="primary" onClick={() => { setView("create"); window.history.replaceState(null, "", window.location.pathname); }}>{text.newProject}</button>
+      {projects.length === 0 ? <p>{text.noProjects}</p> : <div className="project-grid">{projects.map((project) => <article key={project.id} className="project-card"><h2>{project.name}</h2><code>{project.project_directory}</code><button disabled={busy} onClick={() => void openProject(project.id)}>{text.openProject}</button></article>)}</div>}
+      {error && <p className="error" role="alert">{error}</p>}
+    </section></main>;
+  }
+
   if (session?.step === "complete") {
     return <DashboardReview language={language} sessionId={session.session_id} context={session.confirmed_context} />;
   }
@@ -188,7 +237,6 @@ export default function SetupPage() {
           </div>
         )}
         <p className="eyebrow">{text.eyebrow}</p>
-        {!session && projects.length > 0 && <nav aria-label="Projects"><p>{language === "pt" ? "Projetos salvos" : "Saved projects"}</p><ul>{projects.map((project) => <li key={project.id}>{project.name} · <code>{project.project_directory}</code></li>)}</ul></nav>}
         {
           <form onSubmit={submit}>
             <h1 id="setup-title">{question}</h1>

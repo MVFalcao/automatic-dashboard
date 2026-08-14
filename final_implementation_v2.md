@@ -124,9 +124,10 @@ The v2 milestone is complete only when:
 
 ## v0.2.0 automated validation record
 
-- 110 Python tests passed.
+- 115 Python tests passed after installed-launcher, provider-setup, and project-home remediation.
 - Frontend typecheck and production build passed with verified Node.js 24.18.0.
-- English and Portuguese browser journeys passed across API restarts.
+- English and Portuguese browser journeys passed across API restarts, including
+  the project home, new-project action, and reopening an active project.
 - Version coherence, workflow YAML, shell syntax, privacy-oriented support bundle,
   structured Hermes retry, and renderer/parity tests passed locally.
 - No GitHub Release was created or published and no scheduling/delivery was activated.
@@ -137,3 +138,14 @@ The v2 milestone is complete only when:
 - [ ] Complete clean Windows 10 and Windows 11 x64 install, OAuth, report, restart, upgrade, rollback, and uninstall acceptance.
 - [ ] Record the installer checksum and VM results here.
 - [ ] Obtain explicit user approval before publishing any draft release.
+
+## Post-draft application remediation
+
+- [x] Recover automatically when a stale managed frontend is left without its API.
+- [x] Capture local API and web startup logs and report actionable port conflicts.
+- [x] Offer API-key provider setup in the review before a project exists.
+- [x] Distinguish provider/runtime failures from invalid structured Hermes drafts.
+- [x] Add a project home with create, list, open, and return navigation.
+- [x] Reopen only checksum-verified active project specifications.
+- [x] Cover the home/reopen flow in English and Portuguese browser tests.
+- [ ] Rebuild the Windows draft candidate and run stale-launch recovery on the Windows runner.

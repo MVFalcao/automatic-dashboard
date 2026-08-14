@@ -37,6 +37,42 @@ function Invoke-CheckedScript([string]$ScriptPath, [string[]]$Arguments, [string
     if ($LASTEXITCODE -ne 0) { throw "$Label failed with exit code $LASTEXITCODE" }
 }
 
+function Test-StaleFrontendRecovery {
+    $node = Join-Path $InstallDir "runtime\node\node.exe"
+    $standalone = Join-Path $InstallDir "dashboard\web\.next\standalone"
+    $launcherScript = Join-Path $InstallDir "dashboard-start.ps1"
+    $staleWeb = $null
+    $launcher = $null
+    try {
+        $env:HOSTNAME = "127.0.0.1"
+        $env:PORT = "3000"
+        $env:DASHBOARD_SUPPRESS_BROWSER = "true"
+        $staleWeb = Start-Process -FilePath $node -ArgumentList "server.js" -WorkingDirectory $standalone -PassThru
+        $staleReady = $false
+        for ($i = 0; $i -lt 120; $i++) {
+            try { if ((Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:3000").StatusCode -eq 200) { $staleReady = $true; break } } catch { Start-Sleep -Milliseconds 250 }
+        }
+        if (-not $staleReady) { throw "Synthetic stale frontend did not start" }
+
+        $launcher = Start-Process -FilePath powershell.exe -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ('"{0}"' -f $launcherScript)
+        ) -WorkingDirectory $InstallDir -PassThru
+        $recovered = $false
+        for ($i = 0; $i -lt 160; $i++) {
+            try { if ((Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:3000/backend/api/hermes/status").StatusCode -eq 200) { $recovered = $true; break } } catch { Start-Sleep -Milliseconds 250 }
+        }
+        if (-not $recovered) { throw "Launcher did not recover a stale managed frontend" }
+        $staleWeb.Refresh()
+        if (-not $staleWeb.HasExited) { throw "Launcher left the stale frontend process running" }
+    } finally {
+        Remove-Item Env:DASHBOARD_SUPPRESS_BROWSER -ErrorAction SilentlyContinue
+        if ($launcher) { Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue }
+        @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.ExecutablePath -and $_.ExecutablePath.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase)
+        }) | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 $manifestPath = Join-Path $BundleDir "manifest.sha256"
 $wheel = Get-ChildItem (Join-Path $BundleDir "wheels\universal_dashboard_agent-*.whl") | Select-Object -First 1
 $manifestText = $null
@@ -67,6 +103,7 @@ try {
 
     $smokeScript = Join-Path $InstallDir "scripts\smoke-test-install.ps1"
     Invoke-CheckedScript $smokeScript @("-InstallDir", $InstallDir) "Installed application smoke test"
+    Test-StaleFrontendRecovery
 
     $wheelBytes = [IO.File]::ReadAllBytes($wheel.FullName)
     $manifestText = [IO.File]::ReadAllText($manifestPath)
@@ -95,7 +132,7 @@ try {
     $uninstallScript = Join-Path $InstallDir "scripts\uninstall-windows.ps1"
     Invoke-CheckedScript $uninstallScript @("-InstallDir", $InstallDir, "-ConfirmUninstall") "Uninstall smoke test"
     if (Test-Path -LiteralPath $InstallDir) { throw "Uninstall left the test installation behind: $InstallDir" }
-    Write-Host "PASS: install, upgrade, loopback smoke test, rollback, and uninstall checks passed."
+    Write-Host "PASS: install, upgrade, loopback smoke test, stale-launch recovery, rollback, and uninstall checks passed."
 } finally {
     if ($wheelBytes -and $wheel) { [IO.File]::WriteAllBytes($wheel.FullName, $wheelBytes) }
     if ($manifestText) { [IO.File]::WriteAllText($manifestPath, $manifestText) }

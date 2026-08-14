@@ -15,6 +15,8 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from automation.specification.models import DashboardSpec
+from automation.specification.versioning import load_active_spec
 from dashboard.api.models import Language, OutputFormat
 
 
@@ -103,6 +105,13 @@ class ApproveSpecificationRequest(BaseModel):
     approval_id: UUID
     approved_by: str = Field(min_length=1, max_length=160)
     confirmed_non_confidential: bool = False
+
+
+class ProjectWorkspace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project: ProjectDefinition
+    specification: DashboardSpec
 
 
 class ProjectRepository:
@@ -237,6 +246,25 @@ def get_project(project_id: UUID) -> ProjectDefinition:
         return project_repository.get(project_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
+
+
+@router.get("/{project_id}/workspace", response_model=ProjectWorkspace)
+def get_project_workspace(project_id: UUID) -> ProjectWorkspace:
+    """Open a registered project with its checksum-verified active spec."""
+
+    try:
+        project = project_repository.get(project_id)
+        if project.active_specification_version is None:
+            raise FileNotFoundError
+        specification = load_active_spec(project.project_directory)
+        return ProjectWorkspace(project=project, specification=specification)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="The project does not have a readable active dashboard specification.",
+        ) from exc
 
 
 @router.put("/{project_id}", response_model=ProjectDefinition)

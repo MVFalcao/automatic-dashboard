@@ -4,10 +4,11 @@ import io
 import json
 import zipfile
 
+import httpx
 from fastapi.testclient import TestClient
 
 from automation.agent.oauth import CodexOAuthManager
-from automation.agent.credentials import NativeOAuthReference
+from automation.agent.credentials import MemoryCredentialStore, NativeOAuthReference
 from automation.agent.models import AuthMethod, ProviderConnection, ProviderName, TaskCapability, TokenEstimate
 from dashboard.api.hermes import provider_registry
 from dashboard.api.main import app
@@ -93,6 +94,51 @@ def test_invalid_hermes_draft_is_safe_and_structured(monkeypatch) -> None:
     assert response.json()["detail"]["code"] == "invalid_hermes_draft"
     assert hermes.calls == 2
     assert client.get(f"/api/intake/{session_id}/draft").json() is None
+
+
+def test_unavailable_provider_is_not_misreported_as_invalid_draft(monkeypatch) -> None:
+    session_id = _complete_intake()
+
+    class Client:
+        calls = 0
+
+        def chat(self, **_: object) -> dict:
+            self.calls += 1
+            request = httpx.Request("POST", "http://127.0.0.1:8642/v1/chat/completions")
+            response = httpx.Response(500, request=request)
+            raise httpx.HTTPStatusError("provider unavailable", request=request, response=response)
+
+    hermes = Client()
+    monkeypatch.setattr("dashboard.api.main.managed_hermes.client", hermes)
+    monkeypatch.setattr("dashboard.api.main.SafeMemoryStore", lambda: _Memory())
+    response = client.post(f"/api/intake/{session_id}/draft", json={
+        "accent_color": "#1D4ED8", "chart_type": "bar",
+        "section_order": ["summary", "distribution", "details"],
+        "terminology": {}, "feedback": "Keep synthetic labels", "feedback_non_confidential": True,
+    })
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "provider_unavailable"
+    assert hermes.calls == 1
+    assert client.get(f"/api/intake/{session_id}/draft").json() is None
+
+
+def test_api_provider_can_be_connected_before_project_creation(monkeypatch) -> None:
+    store = MemoryCredentialStore()
+    configured: list[dict[str, str]] = []
+    monkeypatch.setattr("dashboard.api.hermes.KeyringCredentialStore", lambda: store)
+    monkeypatch.setattr("dashboard.api.hermes.managed_hermes.configure_provider", configured.append)
+    try:
+        response = client.post("/api/providers/connect-api-key", json={
+            "provider": "gemini", "account_id": "local", "model": "managed-default",
+            "api_key": "synthetic-test-key", "capabilities": ["conversation", "structured_output"],
+        })
+        assert response.status_code == 201
+        assert "synthetic-test-key" not in response.text
+        assert configured == [{"GEMINI_API_KEY": "synthetic-test-key"}]
+        status = client.get("/api/hermes/status").json()
+        assert status["provider_ready"] is True
+    finally:
+        provider_registry.remove(ProviderName.GEMINI)
 
 
 def test_validation_errors_do_not_echo_rejected_values() -> None:

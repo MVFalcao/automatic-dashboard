@@ -56,6 +56,13 @@ def test_windows_installer_has_transactional_upgrade_guards() -> None:
     assert "Get-FileHash -LiteralPath $target" in installer
     assert 'if (-not $BundleDir) {' in installer
     assert '$excludeDirectories += Join-Path $Source "dashboard\\web\\.next"' in installer
+    assert "Test-DashboardEndpoint 'http://127.0.0.1:3000/backend/api/hermes/status'" in installer
+    assert "DASHBOARD_SUPPRESS_BROWSER" in installer
+    assert "StartsWith('$InstallDir', [StringComparison]::OrdinalIgnoreCase)" in installer
+    assert 'throw "Port `$port is already used by another application.' in installer
+    assert '-RedirectStandardError `$apiStderr' in installer
+    assert '-RedirectStandardError `$webStderr' in installer
+    assert 'throw "API did not start. Review `$apiStderr"' in installer
     assert ".upgrade-backup" in installer
     assert "Move-Item -LiteralPath $backupDir -Destination $InstallDir" in installer
     assert '".hermes-data", "config", "projects.json"' in installer
@@ -70,6 +77,9 @@ def test_windows_release_acceptance_is_shared_and_checks_installed_files() -> No
     assert '"scripts\\smoke-test-install.ps1"' in script
     assert '"scripts\\uninstall-windows.ps1"' in script
     assert "Synthetic failed upgrade unexpectedly succeeded" in script
+    assert "Test-StaleFrontendRecovery" in script
+    assert "DASHBOARD_SUPPRESS_BROWSER" in script
+    assert "Launcher did not recover a stale managed frontend" in script
     assert "Uninstall left the test installation behind" in script
     preflight = (ROOT / "scripts" / "test-release-local.sh").read_text(encoding="utf-8")
     assert "check-powershell-syntax.ps1" in preflight
