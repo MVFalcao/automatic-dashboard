@@ -71,6 +71,11 @@ def test_windows_release_acceptance_is_shared_and_checks_installed_files() -> No
     assert "Uninstall left the test installation behind" in script
     preflight = (ROOT / "scripts" / "test-release-local.sh").read_text(encoding="utf-8")
     assert "check-powershell-syntax.ps1" in preflight
+    smoke = (ROOT / "scripts" / "smoke-test-install.ps1").read_text(encoding="utf-8")
+    assert "-RedirectStandardOutput $webStdout" in smoke
+    assert "-RedirectStandardError $webStderr" in smoke
+    assert "if ($web.HasExited) { break }" in smoke
+    assert "Frontend stderr:" in smoke
 
 
 def test_inno_setup_propagates_application_install_failure() -> None:

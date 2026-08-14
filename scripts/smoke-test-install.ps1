@@ -16,6 +16,8 @@ $env:DASHBOARD_HERMES_HOME = Join-Path $InstallDir ".hermes-data"
 $env:HERMES_HOME = $env:DASHBOARD_HERMES_HOME
 $env:DASHBOARD_ALLOWED_ORIGINS = "http://127.0.0.1:$WebPort"
 $env:DASHBOARD_API_ORIGIN = "http://127.0.0.1:$Port"
+$webStdout = Join-Path ([IO.Path]::GetTempPath()) "automatic-dashboard-web-$PID.stdout.log"
+$webStderr = Join-Path ([IO.Path]::GetTempPath()) "automatic-dashboard-web-$PID.stderr.log"
 
 function Start-Api {
     $process = Start-Process -FilePath $python -ArgumentList @('-m','uvicorn','dashboard.api.main:app','--host','127.0.0.1','--port',$Port) -WorkingDirectory $InstallDir -PassThru
@@ -37,12 +39,21 @@ try {
     $standalone = Join-Path $InstallDir "dashboard\web\.next\standalone\server.js"
     if (Test-Path $standalone) {
         $env:HOSTNAME = "127.0.0.1"; $env:PORT = "$WebPort"
-        $web = Start-Process -FilePath $node -ArgumentList $standalone -WorkingDirectory (Join-Path $InstallDir "dashboard\web") -PassThru
+        $web = Start-Process -FilePath $node -ArgumentList "server.js" -WorkingDirectory (Split-Path -Parent $standalone) -RedirectStandardOutput $webStdout -RedirectStandardError $webStderr -PassThru
     } else {
-        $web = Start-Process -FilePath "npm" -ArgumentList @('run','start','--','-H','127.0.0.1','-p',$WebPort) -WorkingDirectory (Join-Path $InstallDir "dashboard\web") -PassThru
+        $web = Start-Process -FilePath "npm" -ArgumentList @('run','start','--','-H','127.0.0.1','-p',$WebPort) -WorkingDirectory (Join-Path $InstallDir "dashboard\web") -RedirectStandardOutput $webStdout -RedirectStandardError $webStderr -PassThru
     }
-    for ($i = 0; $i -lt 60; $i++) { try { $page = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$WebPort"; if ($page.StatusCode -eq 200) { break } } catch { Start-Sleep -Milliseconds 250 } }
-    if ($page.StatusCode -ne 200) { throw "Browser UI did not load" }
+    $page = $null
+    for ($i = 0; $i -lt 120; $i++) {
+        if ($web.HasExited) { break }
+        try { $page = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:$WebPort"; if ($page.StatusCode -eq 200) { break } } catch { Start-Sleep -Milliseconds 250 }
+    }
+    if ($null -eq $page -or $page.StatusCode -ne 200) {
+        if (Test-Path -LiteralPath $webStdout) { Write-Host "Frontend stdout:"; Get-Content -LiteralPath $webStdout }
+        if (Test-Path -LiteralPath $webStderr) { Write-Host "Frontend stderr:"; Get-Content -LiteralPath $webStderr }
+        $webExit = if ($web.HasExited) { $web.ExitCode } else { "still running" }
+        throw "Browser UI did not load (frontend process: $webExit)"
+    }
     Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$WebPort/backend/api/hermes/status" | Out-Null
     Stop-Process -Id $api.Id -Force; $api.WaitForExit(); $api = Start-Api
     Invoke-RestMethod -Headers $headers "http://127.0.0.1:$Port/api/providers" | Out-Null
@@ -52,4 +63,5 @@ try {
     if ($api) { Stop-Process -Id $api.Id -Force -ErrorAction SilentlyContinue }
     $hermes = Join-Path $env:DASHBOARD_HERMES_RUNTIME "Scripts\hermes.exe"
     if (Test-Path $hermes) { & $hermes gateway stop | Out-Null }
+    Remove-Item -LiteralPath $webStdout, $webStderr -Force -ErrorAction SilentlyContinue
 }
