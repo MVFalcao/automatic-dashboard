@@ -14,13 +14,14 @@ $installDirExisted = Test-Path -LiteralPath $InstallDir
 $backupDir = "$InstallDir.upgrade-backup"
 $upgradePrepared = $false
 trap {
+    $originalError = $_
     if ($upgradePrepared) {
         if (Test-Path -LiteralPath $InstallDir) { Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $backupDir) { Move-Item -LiteralPath $backupDir -Destination $InstallDir -Force }
     } elseif (-not $installDirExisted -and (Test-Path -LiteralPath $InstallDir)) {
         Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-    throw
+    throw $originalError
 }
 
 function Fail([string]$Message) { throw $Message }

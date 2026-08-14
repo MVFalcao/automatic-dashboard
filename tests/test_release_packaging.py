@@ -50,6 +50,8 @@ def test_windows_installer_has_transactional_upgrade_guards() -> None:
     installer = (ROOT / "scripts" / "install-windows.ps1").read_text(encoding="utf-8")
     assert "[string]$Source," in installer
     assert "if (-not $Source) { $Source = Split-Path -Parent $PSScriptRoot }" in installer
+    assert "$originalError = $_" in installer
+    assert "throw $originalError" in installer
     assert ".upgrade-backup" in installer
     assert "Move-Item -LiteralPath $backupDir -Destination $InstallDir" in installer
     assert '".hermes-data", "config", "projects.json"' in installer
