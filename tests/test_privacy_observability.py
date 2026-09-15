@@ -107,10 +107,12 @@ def test_schedule_records_duration_and_run_audit(tmp_path: Path) -> None:
     runner = LocalPipelineRunner(store, lambda _: PipelineExecution(
         artifacts=[PipelineArtifact(output="pdf", filename="report.pdf", content=b"deterministic")],
         freshness_at=datetime(2026, 1, 1, tzinfo=timezone.utc), token_input=12, token_output=4, provider="fake",
+        metrics={"total": 42, "rate": 0.5, "missing": None},
     ))
     result = runner.run("observed", scheduled_for=datetime(2026, 1, 1, tzinfo=timezone.utc))
     assert result.duration_seconds is not None and result.token_input == 12
     assert result.freshness_at is not None and result.provider == "fake"
+    assert result.metrics == {"total": 42, "rate": 0.5, "missing": None}
     assert {event.action for event in store.list_audit()} >= {"run_started", "run_succeeded"}
 
 

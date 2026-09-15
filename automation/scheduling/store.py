@@ -86,7 +86,8 @@ class ScheduleStore:
                     freshness_at TEXT,
                     token_input INTEGER NOT NULL DEFAULT 0,
                     token_output INTEGER NOT NULL DEFAULT 0,
-                    provider TEXT
+                    provider TEXT,
+                    metrics TEXT
                 );
                 CREATE INDEX IF NOT EXISTS runs_schedule_idx ON runs(schedule_id, started_at DESC);
                 CREATE TABLE IF NOT EXISTS artifacts (
@@ -121,6 +122,7 @@ class ScheduleStore:
                 "token_input": "INTEGER NOT NULL DEFAULT 0",
                 "token_output": "INTEGER NOT NULL DEFAULT 0",
                 "provider": "TEXT",
+                "metrics": "TEXT",
             }.items():
                 if name not in columns:
                     self._connection.execute(f"ALTER TABLE runs ADD COLUMN {name} {definition}")
@@ -220,11 +222,12 @@ class ScheduleStore:
             self._connection.execute(
                 """INSERT OR IGNORE INTO runs (id, schedule_id, idempotency_key, status, scheduled_for,
                 started_at, finished_at, artifact_set_id, error, notification_sent, duration_seconds,
-                freshness_at, token_input, token_output, provider) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                freshness_at, token_input, token_output, provider, metrics) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (run.id, run.schedule_id, run.idempotency_key, run.status.value, _timestamp(run.scheduled_for),
                  _timestamp(run.started_at), _timestamp(run.finished_at) if run.finished_at else None,
                  run.artifact_set_id, run.error, int(run.notification_sent), run.duration_seconds,
-                 _timestamp(run.freshness_at) if run.freshness_at else None, run.token_input, run.token_output, run.provider),
+                 _timestamp(run.freshness_at) if run.freshness_at else None, run.token_input, run.token_output, run.provider,
+                 json.dumps(run.metrics, ensure_ascii=False, separators=(",", ":"))),
             )
             row = self._connection.execute("SELECT * FROM runs WHERE idempotency_key = ?", (run.idempotency_key,)).fetchone()
         assert row is not None
@@ -246,11 +249,11 @@ class ScheduleStore:
         with self._lock, self._connection:
             self._connection.execute(
                 """UPDATE runs SET status=?, finished_at=?, artifact_set_id=?, error=?, notification_sent=?,
-                duration_seconds=?, freshness_at=?, token_input=?, token_output=?, provider=? WHERE id=?""",
+                duration_seconds=?, freshness_at=?, token_input=?, token_output=?, provider=?, metrics=? WHERE id=?""",
                 (run.status.value, _timestamp(run.finished_at) if run.finished_at else None, run.artifact_set_id,
                  run.error, int(run.notification_sent), run.duration_seconds,
                  _timestamp(run.freshness_at) if run.freshness_at else None, run.token_input, run.token_output,
-                 run.provider, run.id),
+                 run.provider, json.dumps(run.metrics, ensure_ascii=False, separators=(",", ":")), run.id),
             )
         return self.get_run(run.id)
 
@@ -389,6 +392,7 @@ class ScheduleStore:
             finished_at=_datetime(row["finished_at"]), artifact_set_id=row["artifact_set_id"], error=row["error"], notification_sent=bool(row["notification_sent"]),
             duration_seconds=row["duration_seconds"], freshness_at=_datetime(row["freshness_at"]),
             token_input=row["token_input"], token_output=row["token_output"], provider=row["provider"],
+            metrics=json.loads(row["metrics"]) if row["metrics"] else {},
         )
 
     @staticmethod

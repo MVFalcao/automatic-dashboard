@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import sqlite3
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from automation.scheduling.cron import CronError, preview_schedule
-from automation.scheduling.models import PipelineArtifact, RunStatus, ScheduleDefinition, ScheduleFrequency
+from automation.scheduling.models import PipelineArtifact, RunRecord, RunStatus, ScheduleDefinition, ScheduleFrequency
 from automation.scheduling.runner import LocalPipelineRunner
 from automation.scheduling.store import ScheduleStore
 
@@ -64,6 +65,56 @@ def test_store_persists_secret_free_schedule_and_runs(tmp_path: Path) -> None:
     assert store.get_schedule(schedule.id).can_activate
     assert "secret" not in database.read_bytes().decode("utf-8", errors="ignore").casefold()
     store.close()
+
+
+def test_store_round_trips_run_metrics(tmp_path: Path) -> None:
+    store = ScheduleStore(tmp_path / "metrics.sqlite3")
+    schedule = definition(tmp_path)
+    store.create_schedule(schedule)
+    run = RunRecord(
+        schedule_id=schedule.id,
+        idempotency_key="metrics-run",
+        status=RunStatus.RUNNING,
+        scheduled_for=datetime(2026, 8, 11, 12, tzinfo=timezone.utc),
+        started_at=datetime(2026, 8, 11, 12, tzinfo=timezone.utc),
+        metrics={"total": 1240, "conversion": 0.125, "missing": None},
+    )
+
+    stored, claimed = store.create_run_if_absent(run)
+
+    assert claimed
+    assert stored.metrics == {"total": 1240, "conversion": 0.125, "missing": None}
+
+
+def test_existing_database_without_metrics_column_is_migrated(tmp_path: Path) -> None:
+    database = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database)
+    connection.execute("""
+        CREATE TABLE runs (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            scheduled_for TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            artifact_set_id TEXT,
+            error TEXT,
+            notification_sent INTEGER NOT NULL DEFAULT 0,
+            duration_seconds REAL,
+            freshness_at TEXT,
+            token_input INTEGER NOT NULL DEFAULT 0,
+            token_output INTEGER NOT NULL DEFAULT 0,
+            provider TEXT
+        )
+    """)
+    connection.commit()
+    connection.close()
+
+    store = ScheduleStore(database)
+
+    columns = {row[1] for row in store._connection.execute("PRAGMA table_info(runs)").fetchall()}
+    assert "metrics" in columns
 
 
 def test_runner_is_idempotent_and_keeps_last_success_after_failure(tmp_path: Path) -> None:

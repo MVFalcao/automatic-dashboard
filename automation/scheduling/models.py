@@ -124,6 +124,7 @@ class RunRecord(StrictModel):
     token_input: int = Field(default=0, ge=0)
     token_output: int = Field(default=0, ge=0)
     provider: str | None = Field(default=None, max_length=80)
+    metrics: dict[str, int | float | None] = Field(default_factory=dict)
 
 
 class ArtifactRecord(StrictModel):

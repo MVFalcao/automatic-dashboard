@@ -97,6 +97,7 @@ class ProductionPipelineExecutor:
         freshness = max((item.fetched_at for item in sync.provenance), default=None)
         return PipelineExecution(
             artifacts=artifacts, freshness_at=freshness,
+            metrics=document.metrics,
             pending_checkpoint_source_id=source.id,
             pending_checkpoint=sync.next_checkpoint,
             project_id=str(project.id), project_directory=project.project_directory,

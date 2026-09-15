@@ -8,7 +8,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, Sequence
 from uuid import uuid4
 
@@ -28,6 +28,7 @@ class PipelineExecution:
 
     artifacts: Sequence[PipelineArtifact]
     freshness_at: datetime | None = None
+    metrics: dict[str, int | float | None] = field(default_factory=dict)
     token_input: int = 0
     token_output: int = 0
     provider: str | None = None
@@ -164,6 +165,7 @@ class LocalPipelineRunner:
                 "duration_seconds": max(0.0, (finished - started).total_seconds()),
                 "freshness_at": execution.freshness_at, "token_input": execution.token_input,
                 "token_output": execution.token_output, "provider": execution.provider,
+                "metrics": execution.metrics,
             })
             self.store.update_run(run)
             self.store.record_audit(AuditEvent(action="run_succeeded", project_id=schedule.project_id, run_id=run.id, details={
