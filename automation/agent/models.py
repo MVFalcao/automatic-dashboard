@@ -73,6 +73,7 @@ class ProviderSetupInstructions(StrictModel):
     provider: ProviderName
     hermes_provider: str
     supported_auth: list[AuthMethod] = Field(min_length=1)
+    capabilities: list[TaskCapability]
     api_key_environment_variable: str | None = None
     setup_command: list[str] = Field(min_length=1)
     oauth_command: list[str] | None = None
@@ -98,4 +99,3 @@ class TaskResponse(StrictModel):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     structured: bool = True
-

@@ -115,13 +115,19 @@ class ProviderRouter:
 def setup_instructions(provider: ProviderName):
     """Return the documented Hermes setup flow for one supported provider."""
 
-    from automation.agent.models import AuthMethod, ProviderSetupInstructions
+    from automation.agent.models import AuthMethod, ProviderSetupInstructions, TaskCapability
 
     descriptors = {
         ProviderName.CLAUDE: ProviderSetupInstructions(
             provider=provider,
             hermes_provider="anthropic",
             supported_auth=[AuthMethod.API_KEY, AuthMethod.OAUTH],
+            capabilities=[
+                TaskCapability.CONVERSATION,
+                TaskCapability.STRUCTURED_OUTPUT,
+                TaskCapability.VISION,
+                TaskCapability.INSIGHTS,
+            ],
             api_key_environment_variable="ANTHROPIC_API_KEY",
             setup_command=["hermes", "model"],
             oauth_command=["hermes", "auth", "add", "anthropic", "--type", "oauth"],
@@ -132,6 +138,11 @@ def setup_instructions(provider: ProviderName):
             provider=provider,
             hermes_provider="openai-codex",
             supported_auth=[AuthMethod.OAUTH],
+            capabilities=[
+                TaskCapability.CONVERSATION,
+                TaskCapability.STRUCTURED_OUTPUT,
+                TaskCapability.INSIGHTS,
+            ],
             setup_command=["hermes", "model"],
             oauth_command=["hermes", "auth", "add", "openai-codex"],
             documentation_url="https://hermes-agent.nousresearch.com/docs/integrations/providers",
@@ -141,6 +152,12 @@ def setup_instructions(provider: ProviderName):
             provider=provider,
             hermes_provider="gemini",
             supported_auth=[AuthMethod.API_KEY],
+            capabilities=[
+                TaskCapability.CONVERSATION,
+                TaskCapability.STRUCTURED_OUTPUT,
+                TaskCapability.VISION,
+                TaskCapability.INSIGHTS,
+            ],
             api_key_environment_variable="GEMINI_API_KEY",
             setup_command=["hermes", "model"],
             documentation_url="https://hermes-agent.nousresearch.com/docs/integrations/providers",
@@ -150,6 +167,11 @@ def setup_instructions(provider: ProviderName):
             provider=provider,
             hermes_provider="deepseek",
             supported_auth=[AuthMethod.API_KEY],
+            capabilities=[
+                TaskCapability.CONVERSATION,
+                TaskCapability.STRUCTURED_OUTPUT,
+                TaskCapability.INSIGHTS,
+            ],
             api_key_environment_variable="DEEPSEEK_API_KEY",
             setup_command=["hermes", "model"],
             documentation_url="https://hermes-agent.nousresearch.com/docs/integrations/providers",

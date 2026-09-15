@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Language = "en" | "pt";
+type Provider = "gemini" | "claude" | "deepseek";
+type CapabilityLoadState = "loading" | "loaded" | "failed";
 type CodexOAuthStatus = {
   session_id: string;
   project_id: string | null;
@@ -31,6 +33,9 @@ const copy = {
     cancel: "Cancel login",
     alternative: "Or use a provider API key",
     provider: "Provider",
+    supports: "Supports",
+    loadingCapabilities: "Loading capabilities…",
+    failedCapabilities: "Could not load this provider's capabilities.",
     apiKey: "API key",
     apiKeyHelp: "The key is sent directly to the operating-system credential vault and is never saved in a project.",
     connectProvider: "Connect provider",
@@ -51,6 +56,9 @@ const copy = {
     cancel: "Cancelar login",
     alternative: "Ou use uma chave de API de outro provedor",
     provider: "Provedor",
+    supports: "Suporta",
+    loadingCapabilities: "Carregando capacidades…",
+    failedCapabilities: "Não foi possível carregar as capacidades deste provedor.",
     apiKey: "Chave de API",
     apiKeyHelp: "A chave é enviada diretamente ao cofre de credenciais do sistema e nunca é salva em um projeto.",
     connectProvider: "Conectar provedor",
@@ -60,6 +68,27 @@ const copy = {
     privacy: "Obrigatório antes do projeto · Aplicação local · Credenciais nunca entram nos arquivos do projeto",
   },
 };
+
+const capabilityLabels: Record<Language, Record<string, string>> = {
+  en: {
+    conversation: "conversation",
+    discovery: "discovery",
+    structured_output: "structured output",
+    vision: "vision",
+    insights: "insights",
+  },
+  pt: {
+    conversation: "conversa",
+    discovery: "descoberta",
+    structured_output: "saída estruturada",
+    vision: "visão",
+    insights: "insights",
+  },
+};
+
+function formatCapability(capability: string, language: Language): string {
+  return capabilityLabels[language][capability] ?? capability.replaceAll("_", " ");
+}
 
 function errorDetail(value: unknown, fallback: string): string {
   if (typeof value === "string") return value;
@@ -88,13 +117,42 @@ export default function AgentProviderSetup({
   onConnected: () => void;
 }) {
   const t = copy[language];
-  const [provider, setProvider] = useState("gemini");
+  const [provider, setProvider] = useState<Provider>("gemini");
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  const [capabilityState, setCapabilityState] = useState<CapabilityLoadState>("loading");
   const [apiKey, setApiKey] = useState("");
   const [oauth, setOauth] = useState<CodexOAuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setCapabilities([]);
+    setCapabilityState("loading");
+
+    void request(`/api/providers/setup/${provider}`)
+      .then((value) => {
+        if (!active) return;
+        const loadedCapabilities = (value as { capabilities?: unknown }).capabilities;
+        if (!Array.isArray(loadedCapabilities) || !loadedCapabilities.every((item) => typeof item === "string")) {
+          setCapabilityState("failed");
+          return;
+        }
+        setCapabilities(loadedCapabilities);
+        setCapabilityState("loaded");
+      })
+      .catch(() => {
+        if (!active) return;
+        setCapabilities([]);
+        setCapabilityState("failed");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [provider]);
 
   const connectCodex = async () => {
     setBusy(true);
@@ -158,7 +216,7 @@ export default function AgentProviderSetup({
           account_id: "local",
           model: `${provider}-default`,
           api_key: apiKey,
-          capabilities: ["conversation", "structured_output", "insights"],
+          capabilities,
         }),
       });
       setApiKey("");
@@ -189,10 +247,15 @@ export default function AgentProviderSetup({
 
       <div className="provider-divider"><span>{t.alternative}</span></div>
       <section className="provider-card" aria-label={t.alternative}>
-        <label>{t.provider}<select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="gemini">Gemini</option><option value="claude">Claude</option><option value="deepseek">DeepSeek</option></select></label>
+        <label>{t.provider}<select value={provider} onChange={(event) => {
+          setCapabilities([]);
+          setCapabilityState("loading");
+          setProvider(event.target.value as Provider);
+        }}><option value="gemini">Gemini</option><option value="claude">Claude</option><option value="deepseek">DeepSeek</option></select></label>
+        <small>{capabilityState === "loaded" && `${t.supports}: ${capabilities.map((capability) => formatCapability(capability, language)).join(", ")}`}{capabilityState === "loading" && t.loadingCapabilities}{capabilityState === "failed" && t.failedCapabilities}</small>
         <label>{t.apiKey}<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} /></label>
         <p>{t.apiKeyHelp}</p>
-        <button disabled={busy || !apiKey.trim()} onClick={() => void connectApiKey()}>{busy ? t.connecting : t.connectProvider}</button>
+        <button disabled={busy || capabilityState !== "loaded" || !apiKey.trim()} onClick={() => void connectApiKey()}>{busy ? t.connecting : t.connectProvider}</button>
       </section>
 
       {message && <p className="onboarding-message success" aria-live="polite">{message}</p>}

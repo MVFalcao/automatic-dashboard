@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from automation.agent.client import HermesClient, HermesExecutionError, HermesTaskRunner
 from automation.agent.credentials import (
@@ -18,6 +18,7 @@ from automation.agent.models import (
     AuthMethod,
     ProviderConnection,
     ProviderName,
+    ProviderSetupInstructions,
     TaskCapability,
     TaskRequest,
     TokenEstimate,
@@ -168,6 +169,45 @@ def test_provider_setup_flows_are_documented_and_secret_free() -> None:
     assert "secret" not in codex.model_dump_json().lower()
     gemini = setup_instructions(ProviderName.GEMINI)
     assert gemini.api_key_environment_variable == "GEMINI_API_KEY"
+
+
+def test_provider_setup_capabilities_are_required_serialized_and_provider_specific() -> None:
+    expected = {
+        ProviderName.CLAUDE: {
+            TaskCapability.CONVERSATION,
+            TaskCapability.STRUCTURED_OUTPUT,
+            TaskCapability.VISION,
+            TaskCapability.INSIGHTS,
+        },
+        ProviderName.CODEX: {
+            TaskCapability.CONVERSATION,
+            TaskCapability.STRUCTURED_OUTPUT,
+            TaskCapability.INSIGHTS,
+        },
+        ProviderName.GEMINI: {
+            TaskCapability.CONVERSATION,
+            TaskCapability.STRUCTURED_OUTPUT,
+            TaskCapability.VISION,
+            TaskCapability.INSIGHTS,
+        },
+        ProviderName.DEEPSEEK: {
+            TaskCapability.CONVERSATION,
+            TaskCapability.STRUCTURED_OUTPUT,
+            TaskCapability.INSIGHTS,
+        },
+    }
+
+    for provider, capabilities in expected.items():
+        instructions = setup_instructions(provider)
+        assert set(instructions.capabilities) == capabilities
+        assert instructions.model_dump(mode="json")["capabilities"] == [
+            capability.value for capability in instructions.capabilities
+        ]
+
+    missing_capabilities = setup_instructions(ProviderName.GEMINI).model_dump()
+    del missing_capabilities["capabilities"]
+    with pytest.raises(ValidationError):
+        ProviderSetupInstructions.model_validate(missing_capabilities)
 
 
 def test_structured_response_rejects_unknown_or_missing_fields() -> None:
