@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 
 from automation.reports.models import ReportDocument
 from automation.reports.localization import excel_number_format, format_value
-from automation.specification.models import FieldKind, SectionKind
+from automation.specification.models import FieldKind, MetricDefinition, SectionKind
 
 
 SYNTHETIC_NOTICE = {
@@ -46,6 +46,21 @@ def _visible_fields(document: ReportDocument):
     return [field for field in document.specification.fields if field.id in identifiers]
 
 
+def _metric_source_fields(document: ReportDocument, metric: MetricDefinition) -> str:
+    labels = {field.id: field.label for field in document.specification.fields}
+    if metric.operation == "ratio":
+        field_ids = (metric.numerator_field, metric.denominator_field)
+    else:
+        field_ids = (metric.field,)
+
+    if metric.operation == "count" and not metric.field:
+        source = "contagem de registros" if _language(document) == "pt" else "record count"
+    else:
+        source = ", ".join(labels.get(field_id, field_id) for field_id in field_ids if field_id)
+    prefix = "Campos de origem:" if _language(document) == "pt" else "Source fields:"
+    return f"{prefix} {source}"
+
+
 def _typed_excel(value: object, kind: FieldKind) -> object:
     if value is None:
         return None
@@ -74,7 +89,8 @@ def render_excel(document: ReportDocument) -> bytes:
     if document.synthetic:
         summary.append([_excel_safe(SYNTHETIC_NOTICE[language])])
     for metric in _visible_metrics(document):
-        summary.append([_excel_safe(metric.label), document.metrics.get(metric.id), _excel_safe(metric.explanation)])
+        explanation = f"{metric.explanation}\n\n{_metric_source_fields(document, metric)}"
+        summary.append([_excel_safe(metric.label), document.metrics.get(metric.id), _excel_safe(explanation)])
         if isinstance(document.metrics.get(metric.id), (int, float)):
             summary.cell(summary.max_row, 2).number_format = excel_number_format(language=language)
     summary.column_dimensions["A"].width = 34
@@ -117,7 +133,7 @@ def render_html(document: ReportDocument) -> str:
     language = _language(document)
     notice = f'<p class="notice">{html.escape(SYNTHETIC_NOTICE[language])}</p>' if document.synthetic else ""
     metrics = "".join(
-        f'<article><span>{html.escape(metric.label)}</span><strong data-metric="{html.escape(metric.id)}">{html.escape(format_value(document.metrics.get(metric.id), language=language))}</strong><small>{html.escape(metric.explanation)}</small></article>'
+        f'<article><span>{html.escape(metric.label)}</span><strong data-metric="{html.escape(metric.id)}">{html.escape(format_value(document.metrics.get(metric.id), language=language))}</strong><small>{html.escape(metric.explanation)}</small><small>{html.escape(_metric_source_fields(document, metric))}</small></article>'
         for metric in _visible_metrics(document)
     )
     fields = _visible_fields(document)

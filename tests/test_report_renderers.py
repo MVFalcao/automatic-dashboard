@@ -58,7 +58,7 @@ def test_excel_escapes_formula_like_title_headings_labels_and_explanations() -> 
     try:
         assert workbook["Summary"]["A1"].value == "'=TITLE"
         assert workbook["Summary"]["A3"].value == "'-METRIC"
-        assert workbook["Summary"]["C3"].value == "'@EXPLANATION"
+        assert workbook["Summary"]["C3"].value == "'@EXPLANATION\n\nSource fields: Amount"
         assert workbook["Data"]["A1"].value == "'+FIELD"
     finally:
         workbook.close()
@@ -99,3 +99,86 @@ def test_confidential_artifact_requires_lifecycle_approval_and_is_deleted_after_
 def test_confidentiality_is_derived_from_approved_specification() -> None:
     with pytest.raises(ValueError, match="must match"):
         ReportRequest(document=document(), outputs=[OutputKind.EXCEL], confidential=True)
+
+
+def test_sum_metric_source_field_is_rendered_in_excel_and_html() -> None:
+    report = document()
+
+    workbook = load_workbook(BytesIO(render_excel(report)), data_only=True)
+    try:
+        assert workbook["Summary"]["C3"].value == "Adds every approved amount.\n\nSource fields: Amount"
+    finally:
+        workbook.close()
+
+    rendered = render_html(report)
+    assert "<small>Source fields: Amount</small>" in rendered
+
+
+def test_ratio_metric_source_fields_are_rendered() -> None:
+    spec = valid_spec()
+    payload = spec.model_dump(mode="json")
+    payload["metrics"] = [{
+        "id": "ratio",
+        "label": "Ratio",
+        "operation": "ratio",
+        "numerator_field": "amount",
+        "denominator_field": "category",
+        "explanation": "Divides the numerator by the denominator.",
+        "approved": True,
+    }]
+    payload["sections"][0]["metric_ids"] = ["ratio"]
+    payload["visualizations"][0]["metric_ids"] = ["ratio"]
+    report = ReportDocument(
+        specification=type(spec).model_validate(payload),
+        records=[],
+        metrics={"ratio": 2},
+    )
+
+    workbook = load_workbook(BytesIO(render_excel(report)), data_only=True)
+    try:
+        assert workbook["Summary"]["C2"].value == (
+            "Divides the numerator by the denominator.\n\nSource fields: Amount, Category"
+        )
+    finally:
+        workbook.close()
+    assert "<small>Source fields: Amount, Category</small>" in render_html(report)
+
+
+def test_count_metric_without_field_uses_record_count_source() -> None:
+    spec = valid_spec()
+    payload = spec.model_dump(mode="json")
+    payload["metrics"] = [{
+        "id": "records",
+        "label": "Records",
+        "operation": "count",
+        "explanation": "Counts all records.",
+        "approved": True,
+    }]
+    payload["sections"][0]["metric_ids"] = ["records"]
+    payload["visualizations"][0]["metric_ids"] = ["records"]
+    report = ReportDocument(
+        specification=type(spec).model_validate(payload),
+        records=[],
+        metrics={"records": 2},
+    )
+
+    workbook = load_workbook(BytesIO(render_excel(report)), data_only=True)
+    try:
+        assert workbook["Summary"]["C2"].value == "Counts all records.\n\nSource fields: record count"
+    finally:
+        workbook.close()
+    assert "<small>Source fields: record count</small>" in render_html(report)
+
+
+def test_portuguese_source_fields_label_is_rendered() -> None:
+    spec = valid_spec()
+    payload = spec.model_dump(mode="json")
+    payload["localization"]["language"] = "pt-BR"
+    report = document().model_copy(update={"specification": type(spec).model_validate(payload)})
+
+    workbook = load_workbook(BytesIO(render_excel(report)), data_only=True)
+    try:
+        assert "Campos de origem: Amount" in workbook["Resumo"]["C3"].value
+    finally:
+        workbook.close()
+    assert "<small>Campos de origem: Amount</small>" in render_html(report)
