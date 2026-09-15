@@ -58,6 +58,24 @@ def test_inspection_infers_nested_fields_and_plain_language_mappings() -> None:
     assert inspection.requires_approval is True
 
 
+def test_inspection_surfaces_missing_rate_and_deterministic_sample_values() -> None:
+    client = ApiClient()
+    inspection = client.inspect(source(), {"items": [
+        {"status": "new", "region": "north"},
+        {"status": "new", "region": None},
+        {"status": "closed", "region": "south"},
+        {"status": "pending", "region": "north"},
+        {"status": "archived", "region": "east"},
+    ]})
+
+    status = next(field for field in inspection.fields if field.path == "status")
+    region = next(field for field in inspection.fields if field.path == "region")
+    assert status.missing_rate == 0
+    assert status.sample_values == ["new", "closed", "pending"]
+    assert region.missing_rate == 0.2
+    assert region.sample_values == ["north", "south", "east"]
+
+
 def test_openapi_inspection_extracts_json_response_contract() -> None:
     client = ApiClient()
     inspection = client.inspect(source(), openapi_document={

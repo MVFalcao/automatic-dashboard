@@ -90,6 +90,8 @@ class ApiField(StrictModel):
     type: str = Field(min_length=1, max_length=40)
     nullable: bool = True
     sample_count: int = Field(default=0, ge=0)
+    missing_rate: float = Field(ge=0, le=1)
+    sample_values: list[str] = Field(default_factory=list, max_length=5)
     evidence: str = Field(default="Inferred from representative JSON", max_length=500)
 
 

@@ -93,12 +93,21 @@ def infer_api_schema(
         kind = types.most_common(1)[0][0] if types else "string"
         if len(types) > 1 and kind != "string":
             kind = "string"
+        sample_values: list[str] = []
+        for item in non_null:
+            stringified = str(item)
+            if stringified not in sample_values:
+                sample_values.append(stringified)
+            if len(sample_values) == 3:
+                break
         fields.append(ApiField(
             path=path,
             name=_label(path),
             type=kind,
             nullable=len(non_null) != len(values[path]),
             sample_count=len(non_null),
+            missing_rate=(len(values[path]) - len(non_null)) / len(values[path]),
+            sample_values=sample_values,
             evidence=f"Inferred from {len(records)} representative JSON record(s)",
         ))
     targets = target_fields or {}
@@ -207,6 +216,7 @@ def infer_openapi_schema(
         type=kind,
         nullable=True,
         sample_count=0,
+        missing_rate=0,
         evidence="Inferred from the supplied OpenAPI/Swagger response schema",
     ) for path, kind in sorted(fields.items())]
     targets = target_fields or {}
