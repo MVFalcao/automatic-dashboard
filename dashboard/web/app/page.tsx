@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import AgentProviderSetup from "./AgentProviderSetup";
 import DashboardReview from "./DashboardReview";
 import ExistingProject, { ExistingProjectWorkspace } from "./ExistingProject";
 
@@ -34,6 +35,7 @@ type ReferenceInspection = {
 };
 
 type ProjectEntry = { id: string; name: string; project_directory: string };
+type ProviderGate = "checking" | "required" | "ready" | "error";
 
 const contextLabels: Record<Language, Record<string, string>> = {
   en: { goal: "Goal", audience: "Audience", reference_sample: "Reference sample", outputs: "Outputs", project_location: "Project location" },
@@ -112,12 +114,20 @@ export default function SetupPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
+  const [providerGate, setProviderGate] = useState<ProviderGate>("checking");
   const [view, setView] = useState<"home" | "create" | "project">("home");
   const [openedProject, setOpenedProject] = useState<ExistingProjectWorkspace | null>(null);
   const text = useMemo(() => copy[language], [language]);
 
   useEffect(() => {
     if (navigator.language.toLowerCase().startsWith("pt")) setLanguage("pt");
+    fetch("/backend/api/hermes/status", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        const status = await response.json() as { provider_ready?: boolean };
+        setProviderGate(status.provider_ready ? "ready" : "required");
+      })
+      .catch(() => setProviderGate("error"));
     fetch("/backend/api/projects", { cache: "no-store" }).then((response) => response.ok ? response.json() : []).then(setProjects).catch(() => setProjects([]));
     const identifier = new URLSearchParams(window.location.search).get("intake");
     if (identifier) fetch(`/backend/api/intake/${identifier}`, { cache: "no-store" }).then(async (response) => {
@@ -208,6 +218,18 @@ export default function SetupPage() {
   const isReferenceStep = session?.step === "reference_sample";
   const isConfirmationStep = session?.step === "confirmation";
   const isProjectLocationStep = session?.step === "project_location";
+
+  if (providerGate === "checking") {
+    return <main className="shell"><section className="panel agent-gate-status"><p className="eyebrow">Dashboard Agent</p><h1>{language === "pt" ? "Verificando a conexão do agente…" : "Checking the agent connection…"}</h1></section></main>;
+  }
+
+  if (providerGate === "error") {
+    return <main className="shell"><section className="panel agent-gate-status"><p className="eyebrow">Dashboard Agent</p><h1>{language === "pt" ? "Não foi possível verificar o agente" : "The agent could not be checked"}</h1><p className="intro">{language === "pt" ? "Confirme que a API local está funcionando e tente novamente." : "Confirm that the local API is running and try again."}</p><button className="primary" onClick={() => window.location.reload()}>{language === "pt" ? "Tentar novamente" : "Try again"}</button></section></main>;
+  }
+
+  if (providerGate === "required") {
+    return <AgentProviderSetup language={language} onLanguageChange={setLanguage} onConnected={() => setProviderGate("ready")} />;
+  }
 
   if (view === "project" && openedProject) {
     return <ExistingProject workspace={openedProject} language={language} onBack={backToProjects} />;

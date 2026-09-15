@@ -42,13 +42,13 @@ def generate_reports(payload: ProjectReportRequest) -> list[ReportArtifact]:
         if not confidential:
             destination = payload.non_confidential_destination
             if destination is None:
-                raise ValueError("Choose the approved local folder for non-confidential reports")
+                raise HTTPException(status_code=422, detail="Choose the approved local folder for non-confidential reports")
             destination = destination.expanduser().resolve()
             # The project directory itself or a selected descendant is an
             # approved local persistence boundary. External folders must be
             # separately selected in the request and remain local paths.
             if not destination.is_absolute():
-                raise ValueError("Report destination must be an absolute local path")
+                raise HTTPException(status_code=422, detail="Report destination must be an absolute local path")
         else:
             destination = None
         request = ReportRequest(
@@ -72,8 +72,10 @@ def generate_reports(payload: ProjectReportRequest) -> list[ReportArtifact]:
         return artifacts
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
+    except HTTPException:
+        raise
     except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="Report generation failed. Review the request and try again.") from exc
 
 
 @router.get("/{artifact_id}/download")
@@ -82,5 +84,7 @@ def download_report(artifact_id: str) -> Response:
         content, path = artifact_store.consume(artifact_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Report artifact not found or already downloaded") from exc
-    media = {".html": "text/html", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pdf": "application/pdf"}[path.suffix]
+    media = {".html": "text/html", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pdf": "application/pdf"}.get(path.suffix)
+    if media is None:
+        raise HTTPException(status_code=500, detail="Report artifact has an unsupported format")
     return Response(content=content, media_type=media, headers={"Content-Disposition": f'attachment; filename="{path.name}"'})

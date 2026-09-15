@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import secrets
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -18,9 +19,12 @@ def is_loopback_host(host: str | None) -> bool:
     if hostname == "localhost":
         return True
     try:
-        return ipaddress.ip_address(hostname).is_loopback
+        address = ipaddress.ip_address(hostname)
     except ValueError:
         return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_loopback
 
 
 def security_enabled() -> bool:
@@ -37,6 +41,6 @@ async def enforce_local_security(request: Request, call_next):
         return await call_next(request)
     expected = os.environ.get("DASHBOARD_LOCAL_AUTH_TOKEN")
     supplied = request.headers.get("authorization", "")
-    if not expected or supplied != f"Bearer {expected}":
+    if not expected or not secrets.compare_digest(supplied, f"Bearer {expected}"):
         return JSONResponse(status_code=401, content={"detail": "Local authentication required"})
     return await call_next(request)

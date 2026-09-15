@@ -137,9 +137,13 @@ class ProjectRepository:
         _atomic_text(self.registry_path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
     def register(self, project: ProjectDefinition) -> None:
-        entries = [entry for entry in self._registry() if entry.id != project.id and entry.project_directory != project.project_directory]
+        current = self._registry()
+        entries = [entry for entry in current if entry.id != project.id and entry.project_directory != project.project_directory]
         entries.append(ProjectRegistryEntry(id=project.id, name=project.name, project_directory=project.project_directory))
-        self._write_registry(sorted(entries, key=lambda item: (item.name.casefold(), str(item.id))))
+        ordered = sorted(entries, key=lambda item: (item.name.casefold(), str(item.id)))
+        if ordered == current:
+            return
+        self._write_registry(ordered)
 
     def list(self) -> list[ProjectRegistryEntry]:
         with self._lock:

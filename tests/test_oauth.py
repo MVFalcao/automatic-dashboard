@@ -18,6 +18,9 @@ class _FakeProcess:
     def flush(self) -> None:
         return None
 
+    def close(self) -> None:
+        return None
+
     def poll(self) -> int | None:
         return None if not self.terminated else -15
 
@@ -34,10 +37,14 @@ class _FakeProcess:
 def test_oauth_public_status_contains_only_device_metadata(monkeypatch) -> None:
     manager = CodexOAuthManager()
     fake = _FakeProcess([
-        "Open the verification URL https://auth.example.test/device and enter code ABCD-EFGH\n",
+        "To continue, follow these steps:\n",
+        "  1. Open this URL in your browser:\n",
+        "     \x1b[94mhttps://auth.example.test/device\x1b[0m\n",
+        "  2. Enter this code:\n",
+        "     \x1b[94mABCD-EFGH\x1b[0m\n",
     ])
     monkeypatch.setattr(manager, "_already_connected", lambda: False)
-    monkeypatch.setattr(manager, "_select_model", lambda: None)
+    monkeypatch.setattr(manager, "_select_model", lambda: True)
     monkeypatch.setattr("automation.agent.oauth.subprocess.Popen", lambda *args, **kwargs: fake)
 
     result = manager.start("project-1")
@@ -54,6 +61,14 @@ def test_oauth_public_status_contains_only_device_metadata(monkeypatch) -> None:
     assert "access" not in str(result).casefold()
 
 
+def test_oauth_process_output_is_unbuffered_and_uses_application_home(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("DASHBOARD_HERMES_RUNTIME", str(tmp_path / ".hermes-runtime"))
+    monkeypatch.delenv("DASHBOARD_HERMES_HOME", raising=False)
+    environment = CodexOAuthManager._environment()
+    assert environment["PYTHONUNBUFFERED"] == "1"
+    assert environment["HERMES_HOME"] == str((tmp_path / ".hermes-data").resolve())
+
+
 def test_oauth_start_is_idempotent_per_project(monkeypatch) -> None:
     manager = CodexOAuthManager()
     monkeypatch.setattr(manager, "_already_connected", lambda: False)
@@ -62,6 +77,17 @@ def test_oauth_start_is_idempotent_per_project(monkeypatch) -> None:
     monkeypatch.setattr("automation.agent.oauth.subprocess.Popen", lambda *args, **kwargs: _FakeProcess([]))
     first = manager.start("project-1")
     second = manager.start("project-1")
+    assert first["session_id"] == second["session_id"]
+
+
+def test_oauth_start_is_global_before_a_project_exists(monkeypatch) -> None:
+    manager = CodexOAuthManager()
+    monkeypatch.setattr(manager, "_already_connected", lambda: False)
+    monkeypatch.setattr(manager, "_consume", lambda session: None)
+    monkeypatch.setattr("automation.agent.oauth.subprocess.Popen", lambda *args, **kwargs: _FakeProcess([]))
+    first = manager.start()
+    second = manager.start()
+    assert first["project_id"] is None
     assert first["session_id"] == second["session_id"]
 
 

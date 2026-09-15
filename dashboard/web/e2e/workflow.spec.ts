@@ -32,6 +32,20 @@ async function startApi() {
     stdio: "inherit",
   });
   await waitForApi();
+  const provider = await fetch("http://127.0.0.1:8000/api/providers/connect", {
+    method: "POST",
+    headers: { "Authorization": "Bearer e2e-token", "Content-Type": "application/json" },
+    body: JSON.stringify({ connection: {
+      provider: "codex",
+      account_id: "synthetic-e2e",
+      model: "gpt-5.5",
+      auth_method: "oauth",
+      credential: { backend: "hermes-auth-store", provider: "openai-codex", account: "synthetic-e2e" },
+      capabilities: ["conversation", "structured_output", "insights"],
+      token_estimate: { input_tokens: 0, output_tokens: 0 },
+    } }),
+  });
+  if (!provider.ok) throw new Error(`Unable to register the synthetic E2E provider: ${provider.status}`);
 }
 
 async function restartApi() {
@@ -95,7 +109,52 @@ async function completeJourney(page: import("@playwright/test").Page, language: 
   await expect(projectCard).toBeVisible();
   await projectCard.getByRole("button", { name: language === "pt" ? "Abrir projeto" : "Open project" }).click();
   await expect(page.getByRole("heading", { name: language === "pt" ? "Operações do projeto" : "Project operations" })).toBeVisible();
+  await expect(page.getByText(language === "pt" ? "Configuração de provedor" : "Provider setup", { exact: true })).toHaveCount(0);
+  await page.route("**/backend/api/projects/*/revisions", async (route) => {
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+      id: "synthetic-revision", base_version: 1, mode: "update", hermes_response: language === "pt" ? "Reorganizei os cartões e preservei os cálculos aprovados." : "I reorganized the cards and preserved the approved calculations.", active_specification_unchanged: true,
+      specification: { title: projectName, fields: [], outputs: { enabled: ["web"] }, style: { palette: ["#1D4ED8"] }, sections: [{ id: "summary", title: language === "pt" ? "Resumo" : "Summary", kind: "summary" }] },
+      approval: { approval_id: "00000000-0000-0000-0000-000000000099", ready_to_activate: false, sections: { summary: { section_id: "summary", status: "pending" } } },
+      preview: { synthetic: true, metrics: { records: 24 } },
+    }) });
+  });
+  await page.getByText(language === "pt" ? "Atualizar dashboard com o Hermes" : "Update dashboard with Hermes", { exact: true }).click();
+  await page.getByLabel(language === "pt" ? "O que o Hermes deve alterar?" : "What should Hermes change?").fill(language === "pt" ? "Use cartões menores" : "Use smaller cards");
+  await page.getByLabel(language === "pt" ? "Confirmo que esta instrução não é confidencial" : "I confirm this instruction is non-confidential").check();
+  await page.getByRole("button", { name: language === "pt" ? "Pedir ao Hermes para atualizar" : "Ask Hermes to update" }).click();
+  await expect(page.getByText(language === "pt" ? "Reorganizei os cartões e preservei os cálculos aprovados." : "I reorganized the cards and preserved the approved calculations.")).toBeVisible();
+  await expect(page.getByRole("button", { name: language === "pt" ? "Voltar ao projeto" : "Return to project" })).toBeVisible();
+  await page.getByRole("button", { name: language === "pt" ? "Voltar ao projeto" : "Return to project" }).click();
+  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
 }
 
+async function verifyProviderOnboarding(page: import("@playwright/test").Page, language: "en" | "pt") {
+  await page.route("**/backend/api/hermes/status", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ready: true, provider_ready: false }) });
+  });
+  await page.route("**/backend/api/providers/oauth/codex/start", async (route) => {
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+      session_id: "synthetic-onboarding", project_id: null, status: "pending", verification_url: null,
+      user_code: "ABCD-EFGH", expires_in: 900, error: null, recoverable: false, remediation: null,
+      provider: "openai-codex", model: "gpt-5.5", compatible: false,
+    }) });
+  });
+  await page.route("**/backend/api/providers/oauth/codex/synthetic-onboarding", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      session_id: "synthetic-onboarding", project_id: null, status: "connected", verification_url: null,
+      user_code: null, expires_in: 850, error: null, recoverable: false, remediation: null,
+      provider: "openai-codex", model: "gpt-5.5", compatible: true,
+    }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: language === "pt" ? "PT" : "EN", exact: true }).click();
+  await expect(page.getByRole("heading", { name: language === "pt" ? "Conecte seu agente de IA" : "Connect your AI agent" })).toBeVisible();
+  await expect(page.getByRole("button", { name: language === "pt" ? "Conectar Codex pelo navegador" : "Connect Codex in browser" })).toBeVisible();
+  await page.getByRole("button", { name: language === "pt" ? "Conectar Codex pelo navegador" : "Connect Codex in browser" }).click();
+  await expect(page.getByRole("heading", { name: language === "pt" ? "Seus projetos de dashboard" : "Your dashboard projects" })).toBeVisible();
+}
+
+test("@en agent connection is required before projects in English", async ({ page }) => verifyProviderOnboarding(page, "en"));
+test("@pt conexão do agente é obrigatória antes dos projetos", async ({ page }) => verifyProviderOnboarding(page, "pt"));
 test("@en complete English journey across API restart", async ({ page }) => completeJourney(page, "en"));
 test("@pt complete Portuguese journey across API restart", async ({ page }) => completeJourney(page, "pt"));

@@ -88,7 +88,7 @@ based only on synthetic public examples in tests and documentation.
 - [ ] Test development installation with current and minimum supported Python/Node versions.
 - [ ] Test offline installation with network access disabled after the installer is downloaded.
 - [ ] Test restart, upgrade, rollback/failure cleanup, and uninstall preservation.
-- [ ] Test English and Portuguese provider onboarding.
+- [x] Test English and Portuguese provider onboarding before any project is created or opened.
 - [x] Test web, XLSX, and PDF output parity from the same approved `DashboardSpec`.
 - [ ] Record every clean-machine result in this file before release approval.
 
@@ -124,7 +124,7 @@ The v2 milestone is complete only when:
 
 ## v0.2.1 automated validation record
 
-- 115 Python tests passed after installed-launcher, provider-setup, and project-home remediation.
+- 122 Python tests passed after global provider onboarding, existing-project Hermes revisions, installed-launcher, provider-setup, and project-home remediation.
 - Frontend typecheck and production build passed with verified Node.js 24.18.0.
 - English and Portuguese browser journeys passed across API restarts, including
   the project home, new-project action, and reopening an active project.
@@ -144,6 +144,9 @@ The v2 milestone is complete only when:
 - [x] Recover automatically when a stale managed frontend is left without its API.
 - [x] Capture local API and web startup logs and report actionable port conflicts.
 - [x] Offer API-key provider setup in the review before a project exists.
+- [x] Require a global Codex OAuth or API-key provider connection before showing projects or guided setup.
+- [x] Add approval-first Hermes update and re-create actions for existing projects without exposing source records.
+- [x] Keep provider authentication out of project view/update controls and provide an explicit return-to-project action.
 - [x] Distinguish provider/runtime failures from invalid structured Hermes drafts.
 - [x] Add a project home with create, list, open, and return navigation.
 - [x] Reopen only checksum-verified active project specifications.

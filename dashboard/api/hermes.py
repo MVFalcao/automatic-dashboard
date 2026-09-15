@@ -8,7 +8,7 @@ from uuid import UUID
 
 from automation.agent.credentials import CredentialReference, KeyringCredentialStore, NativeOAuthReference
 from automation.agent.models import AuthMethod, ProviderConnection, ProviderName, TaskCapability, TokenEstimate
-from automation.agent.oauth import codex_oauth
+from automation.agent.oauth import codex_oauth, select_hermes_model
 from automation.agent.providers import ProviderRegistry
 from automation.agent.runtime import HERMES_PACKAGE, HERMES_VERSION
 from automation.agent.managed import managed_hermes
@@ -38,14 +38,14 @@ class ProviderKeySetupRequest(BaseModel):
 class CodexOAuthStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    project_id: UUID
+    project_id: UUID | None = None
 
 
 class CodexOAuthStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str
-    project_id: str
+    project_id: str | None
     status: str
     verification_url: str | None = None
     user_code: str | None = None
@@ -82,12 +82,13 @@ def restore_active_api_provider() -> None:
         if not serialized:
             return
         connection = ProviderConnection.model_validate_json(serialized)
-        if not isinstance(connection.credential, CredentialReference):
+        if isinstance(connection.credential, CredentialReference):
+            secret = store.get(connection.credential)
+            if not secret:
+                return
+            managed_hermes.set_provider_environment(_provider_environment(connection, secret))
+        elif not isinstance(connection.credential, NativeOAuthReference):
             return
-        secret = store.get(connection.credential)
-        if not secret:
-            return
-        managed_hermes.set_provider_environment(_provider_environment(connection, secret))
         provider_registry.connect(connection)
     except Exception:
         # Startup diagnostics report provider readiness without exposing
@@ -104,14 +105,23 @@ def list_providers(project_id: UUID | None = None) -> list[ProviderConnection]:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     repository = ProjectWorkflowRepository(project.project_directory)
+    store = KeyringCredentialStore()
     connections: list[ProviderConnection] = []
     for identifier in project.provider_ids:
         try:
             connection = ProviderConnection.model_validate(repository._read("providers", identifier))
-            connections.append(connection)
-            provider_registry.connect(connection)
         except (KeyError, ValueError):
             continue
+        if isinstance(connection.credential, CredentialReference):
+            try:
+                verified = bool(store.get(connection.credential))
+            except Exception:
+                verified = False
+            if connection.connected != verified:
+                connection = connection.model_copy(update={"connected": verified})
+        connections.append(connection)
+        if connection.connected:
+            provider_registry.connect(connection)
     return connections
 
 
@@ -169,14 +179,21 @@ def connect_provider_api_key(payload: ProviderKeySetupRequest) -> ProviderConnec
                 "fields": [{"field": "provider", "message": "Review provider connectivity and model availability."}],
             },
         ) from exc
+    # Best-effort: a prior Codex/other-provider login can leave Hermes' own
+    # model config pinned to a different provider. Repoint it so the newly
+    # connected key is actually used, without failing an otherwise-successful
+    # connection if this step can't complete.
+    select_hermes_model(provider_registry.setup(payload.provider).hermes_provider, payload.model)
     return provider_registry.connect(connection)
 
 
-def _persist_codex_connection(project_id: UUID) -> ProviderConnection:
-    try:
-        project = project_repository.get(project_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Project not found") from exc
+def _persist_codex_connection(project_id: UUID | None) -> ProviderConnection:
+    project = None
+    if project_id is not None:
+        try:
+            project = project_repository.get(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
     connection = ProviderConnection(
         provider=ProviderName.CODEX,
         account_id="local",
@@ -190,21 +207,32 @@ def _persist_codex_connection(project_id: UUID) -> ProviderConnection:
         capabilities={TaskCapability.CONVERSATION, TaskCapability.STRUCTURED_OUTPUT, TaskCapability.INSIGHTS},
         token_estimate=TokenEstimate(input_tokens=0, output_tokens=0),
     )
-    repository = ProjectWorkflowRepository(project.project_directory)
-    identifier = "codex-local"
-    _atomic_json(repository._path("providers", identifier), connection.model_dump(mode="json"))
-    if identifier not in project.provider_ids:
-        project_repository.save(project.model_copy(update={"provider_ids": [*project.provider_ids, identifier]}))
+    if project is not None:
+        repository = ProjectWorkflowRepository(project.project_directory)
+        identifier = "codex-local"
+        _atomic_json(repository._path("providers", identifier), connection.model_dump(mode="json"))
+        if identifier not in project.provider_ids:
+            project_repository.save(project.model_copy(update={"provider_ids": [*project.provider_ids, identifier]}))
+    try:
+        KeyringCredentialStore().put(_active_provider_reference, connection.model_dump_json())
+    except Exception:
+        # Hermes already owns the OAuth token. Failure to cache secret-free
+        # active-provider metadata must not invalidate a completed login.
+        pass
     return provider_registry.connect(connection)
 
 
 @router.post("/providers/oauth/codex/start", response_model=CodexOAuthStatus, status_code=201)
 def start_codex_oauth(payload: CodexOAuthStartRequest) -> CodexOAuthStatus:
-    try:
-        project_repository.get(payload.project_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Project not found") from exc
-    return CodexOAuthStatus.model_validate(codex_oauth.start(str(payload.project_id)))
+    if payload.project_id is not None:
+        try:
+            project_repository.get(payload.project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+    response = CodexOAuthStatus.model_validate(codex_oauth.start(str(payload.project_id) if payload.project_id else None))
+    if response.status == "connected":
+        _persist_codex_connection(UUID(response.project_id) if response.project_id else None)
+    return response
 
 
 @router.get("/providers/oauth/codex/{session_id}", response_model=CodexOAuthStatus)
@@ -215,7 +243,7 @@ def poll_codex_oauth(session_id: str) -> CodexOAuthStatus:
         raise HTTPException(status_code=404, detail="OAuth session not found") from exc
     response = CodexOAuthStatus.model_validate(result)
     if response.status == "connected":
-        _persist_codex_connection(UUID(response.project_id))
+        _persist_codex_connection(UUID(response.project_id) if response.project_id else None)
     return response
 
 

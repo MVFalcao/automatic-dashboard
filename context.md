@@ -39,6 +39,8 @@
 - Do not retain complete agent conversation transcripts.
 - After each conversation, save only a compact non-confidential context needed for future conversations.
 - During setup, ask the user to authenticate with the AI agent/provider account or accounts they use.
+- Require an initial provider connection before showing, creating, or opening dashboard projects.
+- Allow provider authentication before a project exists; associate the global connection with projects later.
 - Do not assume one predetermined AI provider for every user.
 - Initial provider/account support: Claude, Codex, Gemini, and DeepSeek.
 - When multiple providers are connected, let Hermes select the provider for each task.

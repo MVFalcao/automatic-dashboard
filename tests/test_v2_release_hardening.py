@@ -141,6 +141,34 @@ def test_api_provider_can_be_connected_before_project_creation(monkeypatch) -> N
         provider_registry.remove(ProviderName.GEMINI)
 
 
+def test_codex_oauth_can_be_connected_before_project_creation(monkeypatch) -> None:
+    store = MemoryCredentialStore()
+    pending = {
+        "session_id": "synthetic-global-session",
+        "project_id": None,
+        "status": "pending",
+        "verification_url": "https://auth.example.test/device",
+        "user_code": "ABCD-EFGH",
+        "expires_in": 900,
+    }
+    connected = {**pending, "status": "connected", "expires_in": 850, "compatible": True}
+    monkeypatch.setattr("dashboard.api.hermes.codex_oauth.start", lambda project_id=None: pending)
+    monkeypatch.setattr("dashboard.api.hermes.codex_oauth.status", lambda session_id: connected)
+    monkeypatch.setattr("dashboard.api.hermes.KeyringCredentialStore", lambda: store)
+    try:
+        started = client.post("/api/providers/oauth/codex/start", json={})
+        assert started.status_code == 201
+        assert started.json()["project_id"] is None
+        completed = client.get("/api/providers/oauth/codex/synthetic-global-session")
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "connected"
+        status = client.get("/api/hermes/status").json()
+        assert status["provider_ready"] is True
+        assert status["codex_compatible"] is True
+    finally:
+        provider_registry.remove(ProviderName.CODEX)
+
+
 def test_validation_errors_do_not_echo_rejected_values() -> None:
     marker = "PRIVATE-PATH-MARKER"
     response = client.post("/api/projects", json={

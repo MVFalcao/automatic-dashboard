@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import ProjectOperations from "./ProjectOperations";
 
 type Language = "en" | "pt";
@@ -10,6 +11,7 @@ type Project = {
   outputs: string[];
   language: Language;
   active_specification_version: number;
+  non_confidential_confirmed: boolean;
 };
 type Specification = {
   title: string;
@@ -20,7 +22,9 @@ type Specification = {
 export type ExistingProjectWorkspace = { project: Project; specification: Specification };
 
 export default function ExistingProject({ workspace, language, onBack }: { workspace: ExistingProjectWorkspace; language: Language; onBack: () => void }) {
-  const { project, specification } = workspace;
+  const [current, setCurrent] = useState(workspace);
+  useEffect(() => setCurrent(workspace), [workspace]);
+  const { project, specification } = current;
   return <main className="shell">
     <section className="panel project-workspace" aria-labelledby="current-project-title">
       <button onClick={onBack}>{language === "pt" ? "← Voltar aos projetos" : "← Back to projects"}</button>
@@ -34,6 +38,12 @@ export default function ExistingProject({ workspace, language, onBack }: { works
         projectDirectory={project.project_directory}
         outputs={specification.outputs.enabled}
         fields={specification.fields}
+        activeSpecificationVersion={project.active_specification_version}
+        projectNonConfidential={project.non_confidential_confirmed}
+        onSpecificationActivated={(nextSpecification, version) => setCurrent({
+          project: { ...project, active_specification_version: version },
+          specification: nextSpecification,
+        })}
       />
     </section>
   </main>;

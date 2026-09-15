@@ -19,6 +19,17 @@ from automation.approval.models import (
 from automation.observability.models import AuditEvent
 
 
+def _default_state_path() -> Path:
+    configured = os.environ.get("DASHBOARD_APPROVAL_STATE")
+    if configured:
+        return Path(configured)
+    if os.name == "nt":
+        root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    else:
+        root = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    return root / "universal-dashboard-agent" / "approvals.json"
+
+
 def _validate_dependencies(section_ids: set[str], dependencies: dict[str, list[str]]) -> None:
     for section_id, required in dependencies.items():
         if section_id not in section_ids:
@@ -49,7 +60,7 @@ def _validate_dependencies(section_ids: set[str], dependencies: dict[str, list[s
 
 class ApprovalStore:
     def __init__(self, path: Path | None = None) -> None:
-        self.path = path or Path(os.environ.get("DASHBOARD_APPROVAL_STATE", Path(tempfile.gettempdir()) / "universal-dashboard-agent" / "approvals.json"))
+        self.path = path or _default_state_path()
         self._packages: dict[UUID, ApprovalPackage] = {}
         self._audit: list[AuditEvent] = []
         self._lock = RLock()
@@ -68,6 +79,10 @@ class ApprovalStore:
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(self.path.parent, 0o700)
+        except OSError:
+            pass
         packages = []
         for item in self._packages.values():
             sanitized = item.model_dump(mode="json")

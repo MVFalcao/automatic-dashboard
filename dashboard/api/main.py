@@ -18,6 +18,7 @@ from dashboard.api.dashboard_specs import router as dashboard_specs_router
 from dashboard.api.previews import router as previews_router
 from dashboard.api.reports import router as reports_router
 from dashboard.api.projects import project_repository, router as projects_router
+from dashboard.api.revisions import router as revisions_router
 from dashboard.api.schedules import schedule_runner, schedule_service
 from dashboard.api.hermes import restore_active_api_provider, router as hermes_router
 from dashboard.api.api_sources import router as api_sources_router
@@ -114,6 +115,7 @@ app.include_router(previews_router)
 app.include_router(dashboard_specs_router)
 app.include_router(reports_router)
 app.include_router(projects_router)
+app.include_router(revisions_router)
 
 app.include_router(hermes_router)
 app.include_router(api_sources_router)

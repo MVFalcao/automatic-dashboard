@@ -9,6 +9,8 @@ node_modules/
 *.tsbuildinfo
 *.egg-info/
 .venv/
+.hermes-runtime/
+.hermes-data/
 venv/
 
 # Build and test output

@@ -34,8 +34,15 @@ Backend:
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements-dev.txt
+python3 -m venv .hermes-runtime
+.hermes-runtime/bin/python -m pip install 'hermes-agent==0.13.0' 'aiohttp==3.13.3'
 uvicorn dashboard.api.main:app --host 127.0.0.1 --port 8000
 ```
+
+The application-owned Hermes environment is required when testing provider
+authentication from a source checkout. Device-login subprocess output is run
+unbuffered so the browser URL and verification code are available while the
+login session is still pending.
 
 Alternatively, with `uv` installed, `uv sync --extra dev --locked` recreates the
 hash-locked environment recorded in `uv.lock`.
@@ -114,7 +121,9 @@ soon as its bytes are transferred to the download response.
 
 The managed Hermes integration keeps its runtime in an application-owned
 environment pinned to `hermes-agent==0.13.0`. Its authenticated gateway is bound
-to `127.0.0.1` only and uses the documented `API_SERVER_KEY` bearer flow. API
+to `127.0.0.1` only and uses the documented `API_SERVER_KEY` bearer flow. The
+gateway bearer is generated in process memory for each launch and is never
+persisted; provider API keys remain in the operating-system credential store. API
 server support includes a pinned `aiohttp==3.13.3` adapter dependency.
 Provider API keys and app secrets are represented by opaque OS-keyring
 references; native OAuth flows (including Codex device-code login) remain in
@@ -141,6 +150,14 @@ new intake. It lists the local registry, provides an explicit **Create new
 project** action, and reopens an existing project's checksum-verified active
 specification and operations without copying project data into the application
 installation.
+Existing projects provide an approval-first Hermes update area with separate
+update and re-create actions. Hermes receives the approved specification and a
+confirmed non-confidential instruction, never source records. A validated
+synthetic draft is reviewed by section while the active specification remains
+unchanged. The editor displays Hermes's validated, sanitized explanation of
+what it changed and why, and includes an explicit return-to-project action.
+Provider authentication remains in the global first-run gate rather than being
+repeated in project viewing or update controls.
 The gateway follows Hermes' documented localhost API server configuration:
 <https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server/>.
 
@@ -244,10 +261,12 @@ show a Windows SmartScreen warning; verify its SHA-256 value against the
 published `SHA256SUMS.txt` before choosing **More info → Run anyway**.
 
 After installation, open **Universal Dashboard Agent** from the Start Menu.
-The local browser UI is bound to `127.0.0.1` only. In Project operations, use
-**Connect Codex** to complete the browser device login, or configure Claude,
-Gemini, or DeepSeek with an API key stored in the operating system credential
-manager. OAuth tokens never enter project files or the browser UI.
+The local browser UI is bound to `127.0.0.1` only. Before the project list or
+guided setup is available, the initial agent-connection screen requires the
+user to either use **Connect Codex** for browser device login or configure
+Claude, Gemini, or DeepSeek with an API key stored in the operating system
+credential manager. OAuth tokens never enter project files or the browser UI.
+The global connection can later be associated with individual projects.
 
 The installer also creates **Configure AI provider** and **Uninstall Universal
 Dashboard Agent** shortcuts. Uninstall removes only the application directory;

@@ -122,6 +122,24 @@ textarea:focus, input:focus, select:focus { border-color: var(--focus-blue); box
 .project-card button, .project-workspace > button { border: 1px solid #93c5fd; border-radius: 10px; padding: 10px 12px; color: #1e3a8a; background: #eff6ff; cursor: pointer; }
 .project-workspace { width: min(1100px, 100%); }
 
+.agent-onboarding { width: min(760px, 100%); }
+.agent-gate-status { text-align: center; }
+.provider-card { display: grid; gap: 13px; padding: 20px; border: 1px solid var(--border); border-radius: 18px; background: #f8fafc; }
+.provider-card-primary { border-color: #93c5fd; background: linear-gradient(145deg, #eff6ff, #f8fafc); }
+.provider-card-primary > div:first-child { display: flex; align-items: flex-start; gap: 14px; }
+.provider-mark { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; color: white; background: var(--navy); font-weight: 800; }
+.provider-card h2 { margin: 0; font-size: 1.15rem; }
+.provider-card p { margin: 5px 0 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.provider-card label { display: grid; gap: 6px; color: #334155; font-size: .86rem; font-weight: 700; }
+.provider-card input, .provider-card select { width: 100%; border: 1px solid #cbd5e1; border-radius: 10px; padding: 11px 12px; color: var(--ink); background: white; }
+.provider-card > button:not(.primary), .oauth-status button { border: 1px solid #93c5fd; border-radius: 10px; padding: 11px 14px; color: #1e3a8a; background: #eff6ff; font-weight: 700; cursor: pointer; }
+.provider-card button:disabled { cursor: not-allowed; opacity: .45; }
+.provider-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: var(--muted); font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.provider-divider::before, .provider-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.oauth-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 10px; background: white; font-size: .84rem; }
+.onboarding-message { margin: 16px 0 0; }
+.security-note { margin: 20px 0 0; color: var(--muted); font-size: .76rem; text-align: center; }
+
 @media (max-width: 540px) {
   .shell { padding: 0; }
   .panel { min-height: 100vh; border: 0; border-radius: 0; }
@@ -171,6 +189,17 @@ textarea:focus, input:focus, select:focus { border-color: var(--focus-blue); box
 .operations label { display: block; margin: 10px 0; }
 .operations input:not([type="checkbox"]), .operations textarea, .operations select { width: 100%; box-sizing: border-box; }
 .operations pre { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: .75rem; }
+.revision-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.revision-preview { display: grid; gap: 14px; margin-top: 18px; padding: 18px; border: 1px solid #93c5fd; border-radius: 12px; background: #f8fbff; }
+.hermes-response { padding: 15px 16px; border-left: 4px solid var(--blue); border-radius: 8px; background: white; }
+.hermes-response strong { color: var(--navy); }.hermes-response p { margin: 7px 0 0; color: #334155; line-height: 1.55; white-space: pre-wrap; }
+.revision-preview-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.revision-preview-heading h3 { margin: 10px 0 4px; }.revision-preview-heading p { margin: 0; color: var(--muted); font-size: .82rem; }
+.revision-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.revision-metrics div { padding: 12px; border-radius: 9px; background: white; }.revision-metrics span { display: block; color: var(--muted); font-size: .75rem; }.revision-metrics strong { display: block; margin-top: 4px; }
+.revision-preview article { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 12px; border-radius: 9px; background: white; }
+.revision-preview article div { display: grid; gap: 3px; }.revision-preview article div span { color: var(--muted); font-size: .76rem; }
+@media (max-width: 720px) { .revision-preview-heading { display: grid; }.revision-preview article { grid-template-columns: 1fr auto; }.revision-preview article button { grid-row: 2; } }
 .diagnostic-grid { display: grid; gap: 8px; margin-top: 12px; }
 .diagnostic-grid > div { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 10px; border-radius: 8px; background: #f8fafc; }
 .diagnostic-grid p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: .82rem; }

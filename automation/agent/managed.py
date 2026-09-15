@@ -10,7 +10,7 @@ from threading import RLock
 from typing import Any
 
 from automation.agent.client import HermesClient
-from automation.agent.credentials import CredentialReference, KeyringCredentialStore
+from automation.agent.credentials import CredentialReference, MemoryCredentialStore
 from automation.agent.gateway import GatewayConfig, HermesGateway
 from automation.agent.runtime import HERMES_PACKAGE, HERMES_VERSION, HermesRuntime, HermesRuntimeSpec
 
@@ -37,12 +37,13 @@ class ManagedHermesService:
             self._set(remediation="Install the bundled hermes-agent==0.13.0 runtime and restart the application.")
             return
         try:
-            credentials = KeyringCredentialStore()
+            # The gateway bearer is session-scoped infrastructure, not a
+            # provider credential. Keep it only in process memory so local
+            # Hermes can start even when a desktop keyring is unavailable.
+            credentials = MemoryCredentialStore()
             reference = CredentialReference(service="universal-dashboard-agent", account="managed-hermes-gateway")
-            secret = credentials.get(reference)
-            if not secret:
-                secret = secrets.token_urlsafe(48)
-                credentials.put(reference, secret)
+            secret = secrets.token_urlsafe(48)
+            credentials.put(reference, secret)
             port = int(os.environ.get("DASHBOARD_HERMES_PORT", "8642"))
             hermes_home = Path(os.environ.get("DASHBOARD_HERMES_HOME", runtime_root.parent / ".hermes-data")).resolve()
             (hermes_home / "scripts").mkdir(parents=True, exist_ok=True)
@@ -77,10 +78,9 @@ class ManagedHermesService:
                     time.sleep(0.2)
             gateway.stop()
             self._set(remediation="Hermes started but did not pass its authenticated health check.")
-        except Exception as exc:
-            # Never expose backend/keyring exception messages: some backends
-            # include paths or account details.
-            self._set(remediation="The OS credential store is unavailable. Enable a supported keyring backend and restart.")
+        except Exception:
+            # Never expose child-process output or local paths in status.
+            self._set(remediation="Hermes could not start its authenticated local gateway. Restart the application and review diagnostics.")
 
     def stop(self) -> None:
         with self._lock:
@@ -100,13 +100,24 @@ class ManagedHermesService:
         self._provider_environment = dict(environment)
 
     def configure_provider(self, environment: dict[str, str]) -> None:
-        """Restart the managed gateway with a newly selected provider."""
+        """Restart the managed gateway with a newly selected provider.
 
+        Restores the previously working provider on failure instead of
+        leaving the gateway down: a single bad key must not take out an
+        already-functioning runtime.
+        """
+
+        previous_environment = dict(self._provider_environment)
         self.stop()
         self.set_provider_environment(environment)
         self.start()
-        if not self.status().get("ready"):
-            raise RuntimeError("Managed Hermes did not restart with the selected provider")
+        if self.status().get("ready"):
+            return
+        self.stop()
+        if previous_environment:
+            self.set_provider_environment(previous_environment)
+            self.start()
+        raise RuntimeError("Managed Hermes did not restart with the selected provider")
 
     def _set(self, **values: Any) -> None:
         with self._lock:
