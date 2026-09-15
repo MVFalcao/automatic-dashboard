@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -99,6 +100,22 @@ class SafeMemoryStore:
         self._persist()
         return entry
 
+    def forget(self, *, kind: MemoryKind, key: str, project_id: str | None = None) -> bool:
+        """Remove one matching memory entry and report whether it existed."""
+
+        matching = [
+            entry for entry in self._entries
+            if entry.kind == kind and entry.project_id == project_id and entry.key == key
+        ]
+        if not matching:
+            return False
+        self._entries = [
+            entry for entry in self._entries
+            if not (entry.kind == kind and entry.project_id == project_id and entry.key == key)
+        ]
+        self._persist()
+        return True
+
     def project_context(self, project_id: str | None = None) -> list[dict[str, Any]]:
         return [
             entry.model_dump(mode="json")
@@ -141,3 +158,16 @@ class SafeMemoryStore:
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise ValueError("Memory file failed confidential-data validation") from exc
 
+
+def _default_memory_path() -> Path:
+    configured = os.environ.get("DASHBOARD_MEMORY_STATE")
+    if configured:
+        return Path(configured)
+    if os.name == "nt":
+        root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    else:
+        root = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    return root / "universal-dashboard-agent" / "memory.json"
+
+
+safe_memory_store = SafeMemoryStore(_default_memory_path())

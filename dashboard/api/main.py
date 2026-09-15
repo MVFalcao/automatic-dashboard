@@ -49,7 +49,7 @@ from automation.specification.models import (
     SectionKind, SectionSpec, VisualizationKind, VisualizationSpec,
     StyleSpec,
 )
-from automation.agent.memory import MemoryKind, SafeMemoryStore
+from automation.agent.memory import MemoryKind, safe_memory_store
 from automation.release.support import support_events
 
 
@@ -286,7 +286,7 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
         if not payload.feedback_non_confidential:
             raise HTTPException(status_code=409, detail="Confirm the feedback is non-confidential before sending it to Hermes")
         try:
-            SafeMemoryStore().remember(kind=MemoryKind.FEEDBACK, key="preview_feedback", value=payload.feedback)
+            safe_memory_store.remember(kind=MemoryKind.FEEDBACK, key="preview_feedback", value=payload.feedback)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail="Feedback appears confidential and was not sent to Hermes") from exc
         from dashboard.api.hermes import provider_registry
@@ -352,10 +352,9 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
     allowed_sections = {"summary", "distribution", "details"}
     if set(payload.section_order) != allowed_sections or len(payload.section_order) != len(allowed_sections):
         raise HTTPException(status_code=409, detail="Draft section order must contain every reviewed section exactly once")
-    safe_memory = SafeMemoryStore()
     try:
         for key, value in payload.terminology.items():
-            safe_memory.remember(kind=MemoryKind.PROJECT_TERMINOLOGY, key=key, value=value)
+            safe_memory_store.remember(kind=MemoryKind.PROJECT_TERMINOLOGY, key=key, value=value)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="Draft terminology appears confidential and was not persisted") from exc
     version = PreviewDraft.model_validate_json(previous).version + 1 if previous else 1
@@ -369,6 +368,25 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
     # approved project specification, if one exists, remains untouched.
     intake_store.set_resource(session_id, "_approval_id", "")
     return draft
+
+
+@app.get("/api/projects/{project_id}/memory")
+def get_project_memory(project_id: UUID) -> list[dict[str, object]]:
+    try:
+        project_repository.get(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    return safe_memory_store.project_context(str(project_id))
+
+
+@app.delete("/api/projects/{project_id}/memory/{kind}/{key}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_memory(project_id: UUID, kind: MemoryKind, key: str) -> None:
+    try:
+        project_repository.get(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    if not safe_memory_store.forget(kind=MemoryKind(kind), key=key, project_id=str(project_id)):
+        raise HTTPException(status_code=404, detail="Memory entry not found")
 
 
 @app.delete("/api/intake/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

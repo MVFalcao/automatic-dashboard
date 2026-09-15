@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -32,6 +33,8 @@ from automation.agent.runtime import (
 )
 from automation.agent.validation import StructuredResponseError, StructuredResponseValidator
 from dashboard.api.main import app
+from dashboard.api.models import Language, OutputFormat
+from dashboard.api.projects import ProjectDefinition, ProjectRepository
 
 
 def connection(
@@ -234,6 +237,54 @@ def test_memory_persists_only_compact_non_confidential_context(tmp_path: Path) -
         memory.remember(kind=MemoryKind.FEEDBACK, key="source_records", value="private")
     with pytest.raises(ValueError):
         memory.remember(kind=MemoryKind.FEEDBACK, key="note", value="user@example.com")
+
+
+def test_memory_store_persists_across_instances_and_forgets_exact_match(tmp_path: Path) -> None:
+    path = tmp_path / "memory.json"
+    first = SafeMemoryStore(path)
+    first.remember(kind=MemoryKind.PROJECT_TERMINOLOGY, project_id="project-1", key="status", value="Status")
+    first.remember(kind=MemoryKind.PROJECT_TERMINOLOGY, project_id="project-1", key="owner", value="Owner")
+    first.remember(kind=MemoryKind.PROJECT_TERMINOLOGY, project_id="project-2", key="status", value="Situation")
+
+    second = SafeMemoryStore(path)
+    assert {entry["key"] for entry in second.project_context("project-1")} == {"status", "owner"}
+    assert second.forget(kind=MemoryKind.PROJECT_TERMINOLOGY, project_id="project-1", key="status") is True
+    assert second.forget(kind=MemoryKind.PROJECT_TERMINOLOGY, project_id="project-1", key="status") is False
+
+    reloaded = SafeMemoryStore(path)
+    assert {entry["key"] for entry in reloaded.project_context("project-1")} == {"owner"}
+    assert reloaded.project_context("project-2")[0]["value"] == "Situation"
+
+
+def test_project_memory_endpoints(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    import dashboard.api.main as main_module
+
+    project_id = uuid4()
+    repository = ProjectRepository(tmp_path / "projects.json")
+    repository.save(ProjectDefinition(
+        id=project_id,
+        name="Memory project",
+        language=Language.ENGLISH,
+        outputs=[OutputFormat.WEB],
+        project_directory=tmp_path / "project",
+    ))
+    memory = SafeMemoryStore(tmp_path / "memory.json")
+    memory.remember(kind=MemoryKind.PROJECT_TERMINOLOGY, project_id=str(project_id), key="revenue", value="Revenue")
+    monkeypatch.setattr(main_module, "project_repository", repository)
+    monkeypatch.setattr(main_module, "safe_memory_store", memory)
+    client = TestClient(app)
+
+    listed = client.get(f"/api/projects/{project_id}/memory")
+    assert listed.status_code == 200
+    assert listed.json()[0]["key"] == "revenue"
+    assert client.get(f"/api/projects/{uuid4()}/memory").status_code == 404
+
+    deleted = client.delete(f"/api/projects/{project_id}/memory/project_terminology/revenue")
+    assert deleted.status_code == 204
+    assert client.delete(f"/api/projects/{project_id}/memory/project_terminology/revenue").status_code == 404
+    assert client.delete(f"/api/projects/{uuid4()}/memory/project_terminology/revenue").status_code == 404
 
 
 def test_provider_api_exposes_setup_without_accepting_raw_secrets() -> None:
