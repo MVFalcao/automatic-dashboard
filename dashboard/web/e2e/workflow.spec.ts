@@ -113,9 +113,9 @@ async function completeJourney(page: import("@playwright/test").Page, language: 
   await page.route("**/backend/api/projects/*/revisions", async (route) => {
     await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
       id: "synthetic-revision", base_version: 1, mode: "update", hermes_response: language === "pt" ? "Reorganizei os cartões e preservei os cálculos aprovados." : "I reorganized the cards and preserved the approved calculations.", active_specification_unchanged: true,
-      specification: { title: projectName, fields: [], outputs: { enabled: ["web"] }, style: { palette: ["#1D4ED8"] }, sections: [{ id: "summary", title: language === "pt" ? "Resumo" : "Summary", kind: "summary" }] },
+      specification: { title: projectName, fields: [], metrics: [], outputs: { enabled: ["web"] }, style: { palette: ["#1D4ED8"] }, sections: [{ id: "summary", title: language === "pt" ? "Resumo" : "Summary", kind: "summary", metric_ids: [], field_ids: [] }] },
       approval: { approval_id: "00000000-0000-0000-0000-000000000099", ready_to_activate: false, sections: { summary: { section_id: "summary", status: "pending" } } },
-      preview: { synthetic: true, metrics: { records: 24 } },
+      preview: { synthetic: true, metrics: { records: 24 }, records: [] },
     }) });
   });
   await page.getByText(language === "pt" ? "Atualizar dashboard com o Hermes" : "Update dashboard with Hermes", { exact: true }).click();

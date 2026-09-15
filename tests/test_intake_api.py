@@ -10,6 +10,29 @@ from dashboard.api.main import app
 client = TestClient(app)
 
 
+def _hermes_response(needs_clarification: bool, clarifying_question: str | None = None) -> dict:
+    return {
+        "choices": [{
+            "message": {
+                "content": {
+                    "needs_clarification": needs_clarification,
+                    "clarifying_question": clarifying_question,
+                },
+            },
+        }],
+    }
+
+
+class _ClarifyingHermes:
+    def __init__(self, response: dict) -> None:
+        self.response = response
+        self.calls: list[dict] = []
+
+    def chat(self, **kwargs: object) -> dict:
+        self.calls.append(kwargs)
+        return self.response
+
+
 def test_intake_asks_one_localized_question_at_a_time() -> None:
     started = client.post("/api/intake", json={"language": "pt"})
     assert started.status_code == 201
@@ -25,6 +48,74 @@ def test_intake_asks_one_localized_question_at_a_time() -> None:
     next_state = answered.json()
     assert next_state["step"] == "audience"
     assert next_state["confirmed_context"] == {"goal": "Acompanhar operações"}
+
+
+def test_intake_without_hermes_advances_without_clarification(monkeypatch) -> None:
+    monkeypatch.setattr("dashboard.api.intake.managed_hermes.client", None)
+    state = client.post("/api/intake", json={"language": "en"}).json()
+
+    answered = client.post(
+        f"/api/intake/{state['session_id']}/answers",
+        json={"step": "goal", "answer": "Anything"},
+    )
+
+    assert answered.status_code == 200
+    assert answered.json()["step"] == "audience"
+    assert answered.json()["confirmed_context"] == {"goal": "Anything"}
+
+
+def test_intake_asks_one_clarification_then_advances(monkeypatch) -> None:
+    hermes = _ClarifyingHermes(_hermes_response(True, "Which operational outcome matters most?"))
+    monkeypatch.setattr("dashboard.api.intake.managed_hermes.client", hermes)
+    state = client.post("/api/intake", json={"language": "en"}).json()
+
+    clarification = client.post(
+        f"/api/intake/{state['session_id']}/answers",
+        json={"step": "goal", "answer": "Improve things"},
+    )
+
+    assert clarification.status_code == 200
+    clarification_state = clarification.json()
+    assert clarification_state["step"] == "goal"
+    assert clarification_state["question"] == "Which operational outcome matters most?"
+    assert clarification_state["confirmed_context"] == {"goal": "Improve things"}
+    assert len(hermes.calls) == 1
+
+    answered = client.post(
+        f"/api/intake/{state['session_id']}/answers",
+        json={"step": "goal", "answer": "Reduce missed deadlines"},
+    )
+
+    assert answered.status_code == 200
+    assert answered.json()["step"] == "audience"
+    assert answered.json()["confirmed_context"] == {
+        "goal": "Improve things Reduce missed deadlines",
+    }
+    assert len(hermes.calls) == 1
+
+
+def test_intake_ignores_malformed_hermes_response(monkeypatch) -> None:
+    class MalformedHermes:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat(self, **_: object) -> dict:
+            self.calls += 1
+            return {"choices": [{"message": {"content": "not json"}}]}
+
+    hermes = MalformedHermes()
+    monkeypatch.setattr("dashboard.api.intake.managed_hermes.client", hermes)
+    state = client.post("/api/intake", json={"language": "en"}).json()
+
+    answered = client.post(
+        f"/api/intake/{state['session_id']}/answers",
+        json={"step": "goal", "answer": "Anything"},
+    )
+
+    assert answered.status_code == 200
+    assert answered.json()["step"] == "audience"
+    assert answered.json()["confirmed_context"] == {"goal": "Anything"}
+    assert hermes.calls == 2
 
 
 def test_intake_rejects_an_answer_for_the_wrong_step() -> None:

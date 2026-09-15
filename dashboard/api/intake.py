@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from automation.agent.managed import managed_hermes
 from dashboard.api.models import Language, OutputFormat
 
 
@@ -77,6 +78,62 @@ class IntakeResponse(BaseModel):
     confirmed_context: dict[str, str]
 
 
+class HermesIntakeClarification(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    needs_clarification: bool
+    clarifying_question: str | None = None
+
+
+def _hermes_clarification(
+    step: IntakeStep,
+    language: Language,
+    question: str,
+    answer: str,
+) -> HermesIntakeClarification | None:
+    """Ask Hermes for at most one targeted clarification, failing open."""
+
+    client = managed_hermes.client
+    if client is None:
+        return None
+
+    request = {
+        "task": (
+            "Judge whether the user's answer to this one guided dashboard intake question is ambiguous enough "
+            "to need one targeted clarification. Return needs_clarification=true only when clarification is "
+            "necessary. If true, provide exactly one concise follow-up question for the same intake step; if "
+            "false, set clarifying_question to null. Do not start a conversation or ask multiple questions. "
+            "Write the follow-up in the language of the original question."
+        ),
+        "intake_step": step.value,
+        "language": language.value,
+        "question": question,
+        "answer": answer,
+    }
+    for attempt in range(2):
+        try:
+            raw = client.chat(
+                model="hermes-agent",
+                messages=[{
+                    "role": "user",
+                    "content": json.dumps({**request, "repair_attempt": attempt == 1}, ensure_ascii=False),
+                }],
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            return None
+
+        try:
+            content = raw["choices"][0]["message"]["content"]
+            if isinstance(content, str):
+                return HermesIntakeClarification.model_validate_json(content)
+            return HermesIntakeClarification.model_validate(content)
+        except Exception:
+            if attempt == 1:
+                return None
+    return None
+
+
 @dataclass
 class IntakeSession:
     session_id: UUID
@@ -84,6 +141,7 @@ class IntakeSession:
     step: IntakeStep = IntakeStep.GOAL
     confirmed_context: dict[str, str] = field(default_factory=dict)
     persisted_context: dict[str, str] = field(default_factory=dict)
+    pending_clarification: str | None = None
 
 
 class IntakeStore:
@@ -166,9 +224,33 @@ class IntakeStore:
             if payload.step != session.step:
                 raise ValueError(f"Expected answer for {session.step.value}")
 
-            session.confirmed_context[payload.step.value] = payload.answer.strip()
-            if payload.persist_non_confidential:
-                session.persisted_context[payload.step.value] = payload.answer.strip()
+            answer = payload.answer.strip()
+            if session.pending_clarification is not None:
+                session.confirmed_context[payload.step.value] = (
+                    f"{session.confirmed_context.get(payload.step.value, '').strip()} {answer}"
+                ).strip()
+                session.pending_clarification = None
+                if payload.persist_non_confidential:
+                    session.persisted_context[payload.step.value] = session.confirmed_context[payload.step.value]
+            else:
+                session.confirmed_context[payload.step.value] = answer
+                if payload.persist_non_confidential:
+                    session.persisted_context[payload.step.value] = answer
+
+                if managed_hermes.client is not None:
+                    clarification = _hermes_clarification(
+                        step=payload.step,
+                        language=session.language,
+                        question=QUESTIONS[session.language][session.step],
+                        answer=answer,
+                    )
+                    if clarification and clarification.needs_clarification and clarification.clarifying_question:
+                        question = clarification.clarifying_question.strip()
+                        if question:
+                            session.pending_clarification = question
+                            self._save()
+                            return self._response(session)
+
             current_index = QUESTION_ORDER.index(session.step)
             if current_index + 1 == len(QUESTION_ORDER):
                 session.step = IntakeStep.COMPLETE
@@ -187,7 +269,7 @@ class IntakeStore:
     def _response(session: IntakeSession) -> IntakeResponse:
         question = None
         if session.step != IntakeStep.COMPLETE:
-            question = QUESTIONS[session.language][session.step]
+            question = session.pending_clarification or QUESTIONS[session.language][session.step]
         return IntakeResponse(
             session_id=session.session_id,
             language=session.language,
