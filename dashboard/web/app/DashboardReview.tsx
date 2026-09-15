@@ -1,11 +1,10 @@
 "use client";
 
-import * as echarts from "echarts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ProjectOperations from "./ProjectOperations";
+import { PreviewSectionBody, type ChartKind } from "./DashboardPreviewSection";
 
 type Language = "en" | "pt";
-type ChartKind = "bar" | "line" | "pie";
 type Field = { id: string; label: string; kind: string };
 type Metric = { id: string; label: string; explanation: string };
 type Section = { id: string; title: string; kind: string; metric_ids: string[]; field_ids: string[]; depends_on: string[]; order: number };
@@ -43,33 +42,6 @@ function problemMessage(problem: unknown, fallback: string): string {
 function isAbsoluteLocalPath(value: string): boolean {
   const path = value.trim();
   return !/^https?:\/\//i.test(path) && (/^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path) || path.startsWith("/"));
-}
-
-function Chart({ document, color, kind, section }: { document: Document; color: string; kind: ChartKind; section: Section }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    const chart = echarts.init(ref.current);
-    const fields = section.field_ids.length ? section.field_ids : document.specification.fields.map((item) => item.id);
-    const dimension = fields.find((id) => document.specification.fields.find((item) => item.id === id)?.kind === "text") ?? document.specification.fields[0]?.id;
-    const numeric = fields.find((id) => document.specification.fields.find((item) => item.id === id)?.kind === "number") ?? document.specification.fields.find((item) => item.kind === "number")?.id;
-    const grouped = Object.entries(document.records.reduce<Record<string, number>>((result, row) => {
-      const key = String(row[dimension] ?? "—");
-      result[key] = (result[key] ?? 0) + Number(numeric ? row[numeric] ?? 0 : 0);
-      return result;
-    }, {}));
-    chart.setOption(kind === "pie" ? {
-      color: [color, "#8da399", "#cfab72", "#687b91", "#a98285"], tooltip: { trigger: "item" },
-      series: [{ type: "pie", radius: ["48%", "72%"], data: grouped.map(([name, value]) => ({ name, value })) }],
-    } : {
-      color: [color], tooltip: { trigger: "axis" }, grid: { left: 45, right: 16, top: 18, bottom: 34 },
-      xAxis: { type: "category", data: grouped.map(([name]) => name) }, yAxis: { type: "value" },
-      series: [{ type: kind, data: grouped.map(([, value]) => value), smooth: kind === "line" }],
-    });
-    const resize = () => chart.resize(); window.addEventListener("resize", resize);
-    return () => { window.removeEventListener("resize", resize); chart.dispose(); };
-  }, [color, document, kind, section]);
-  return <div ref={ref} className="chart-canvas" role="img" aria-label={section.title} />;
 }
 
 export default function DashboardReview({ language, sessionId, context }: Props) {
@@ -196,7 +168,6 @@ export default function DashboardReview({ language, sessionId, context }: Props)
   if (!workspace) return <main className="shell"><section className="panel"><h1>{t.title}</h1><p>{error || t.loading}</p>{error && <button onClick={() => void load()}>{t.retry}</button>}</section></main>;
   const { document, approval } = workspace;
   const statusLabel = (status: string) => ({ approved: t.approved, rejected: t.rejected, blocked: t.blocked, pending: t.pending }[status] ?? status);
-  const display = (value: unknown) => typeof value === "number" ? value.toLocaleString(locale) : String(value ?? "");
 
   return <main className="review-shell" style={{ "--accent": color } as React.CSSProperties}>
     <aside className="review-sidebar">
@@ -220,12 +191,8 @@ export default function DashboardReview({ language, sessionId, context }: Props)
       const section = sectionsById[id]; if (!section) return null;
       const decision = approval.sections[id];
       const controls = <div className="section-actions"><span className={`status ${decision?.status ?? "pending"}`}>{statusLabel(decision?.status ?? "pending")}</span><button disabled={busy || decision?.status === "blocked"} onClick={() => void decide(id, true)}>{t.approve}</button><button disabled={busy || decision?.status === "blocked"} onClick={() => void decide(id, false)}>{t.revise}</button><button aria-label="up" onClick={() => move(id, -1)}>↑</button><button aria-label="down" onClick={() => move(id, 1)}>↓</button></div>;
-      const metrics = document.specification.metrics.filter((metric) => section.metric_ids.includes(metric.id));
-      const fields = document.specification.fields.filter((field) => section.field_ids.includes(field.id));
       return <section className="review-section" key={id}><header><div><p className="section-label">{String(position + 1).padStart(2, "0")}</p><h2>{section.title}</h2></div>{controls}</header>
-        {section.kind === "metrics" && <div className="kpi-grid">{metrics.map((metric) => <article key={metric.id}><span>{metric.label}</span><strong>{display(document.metrics[metric.id])}</strong><small>{metric.explanation}</small></article>)}</div>}
-        {section.kind === "chart" && <Chart document={document} color={color} kind={kind} section={section} />}
-        {section.kind === "table" && <div className="table-wrap"><table><thead><tr>{fields.map((field) => <th key={field.id}>{field.label}</th>)}</tr></thead><tbody>{document.records.slice(0, 8).map((row, index) => <tr key={index}>{fields.map((field) => <td key={field.id}>{display(row[field.id])}</td>)}</tr>)}</tbody></table></div>}
+        <PreviewSectionBody section={section} fields={document.specification.fields} metrics={document.specification.metrics} records={document.records} metricValues={document.metrics} color={color} chartKind={kind} locale={locale} />
       </section>;
     })}{projectId && <ProjectOperations language={language} projectId={projectId} projectDirectory={context.project_location} outputs={document.specification.outputs.enabled} fields={document.specification.fields} />}</div>
   </main>;
