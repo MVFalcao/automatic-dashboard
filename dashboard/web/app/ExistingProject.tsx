@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ProjectOperations from "./ProjectOperations";
+import StatusBanner from "./StatusBanner";
 
 type Language = "en" | "pt";
 type Project = {
@@ -32,6 +33,7 @@ export default function ExistingProject({ workspace, language, onBack }: { works
       <h1 id="current-project-title">{project.name}</h1>
       <p>{specification.title} · v{project.active_specification_version}</p>
       <code>{project.project_directory}</code>
+      <StatusBanner language={language} />
       <ProjectOperations
         language={language}
         projectId={project.id}
