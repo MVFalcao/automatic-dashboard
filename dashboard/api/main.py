@@ -6,6 +6,7 @@ import os
 import json
 import httpx
 from contextlib import asynccontextmanager
+from collections.abc import Mapping, Sequence
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
@@ -49,6 +50,13 @@ from automation.specification.models import (
     SectionKind, SectionSpec, VisualizationKind, VisualizationSpec,
     StyleSpec,
 )
+from automation.specification.templates import (
+    DOMAIN_TEMPLATES,
+    DomainTemplate,
+    apply_template_overrides,
+    build_generic_template,
+    find_sensitive_labels,
+)
 from automation.agent.memory import MemoryKind, safe_memory_store
 from automation.release.support import support_events
 
@@ -58,6 +66,17 @@ class IntakeWorkspacePreview(BaseModel):
     document: ReportDocument
     approval: ApprovalPackage
     project_id: UUID | None = None
+    template_id: str | None = None
+    template_reasoning: str | None = None
+
+
+class HermesTemplateSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    template_id: str
+    reasoning: str = Field(min_length=1, max_length=500)
+    field_label_overrides: dict[str, str] = Field(default_factory=dict)
+    section_title_overrides: dict[str, str] = Field(default_factory=dict)
+    metric_label_overrides: dict[str, str] = Field(default_factory=dict)
 
 
 class IntakeProjectLinkRequest(BaseModel):
@@ -167,6 +186,155 @@ def setup_capabilities() -> SetupCapabilities:
     return SetupCapabilities()
 
 
+def _template_selection_prompt(
+    session: object,
+    exclude_template_ids: Sequence[str],
+    *,
+    repair_attempt: bool,
+    rejected_labels: list[str] | None = None,
+) -> dict[str, object]:
+    context = getattr(session, "confirmed_context", {})
+    summaries = {
+        identifier: template.summary
+        for identifier, template in DOMAIN_TEMPLATES.items()
+        if identifier != "generic"
+    }
+    rejected = rejected_labels or []
+    return {
+        "instruction": (
+            "Return one strict JSON object matching HermesTemplateSelection. Here are ten curated template ids "
+            "and their one-line summaries; choose the closest template to the user's goal, audience, and desired "
+            "outputs, or use template_id 'none' if nothing fits reasonably. Explain the choice in reasoning. You "
+            "may optionally rename existing field, section, and metric labels using the corresponding override "
+            "dictionaries to match the user's wording. You are forbidden from adding or removing fields, changing "
+            "field or section kinds, changing metrics or calculations, or inventing any new structure. Do not choose "
+            "an excluded template id."
+        ),
+        "templates": summaries,
+        "user": {
+            "goal": context.get("goal", ""),
+            "audience": context.get("audience", ""),
+            "outputs": context.get("outputs", ""),
+        },
+        "exclude_template_ids": list(exclude_template_ids),
+        "repair_attempt": repair_attempt,
+        "rejected_override_labels": [
+            {"label": label, "reason": "Sensitive-sounding labels are not permitted in model-proposed display labels."}
+            for label in rejected
+        ],
+    }
+
+
+def _hermes_template_selection(
+    session: object,
+    exclude_template_ids: Sequence[str] = (),
+) -> tuple[str, DomainTemplate, str | None]:
+    client = managed_hermes.client
+    if client is None:
+        raise RuntimeError("Hermes client is unavailable")
+
+    excluded = set(exclude_template_ids)
+    rejected_labels: list[str] = []
+    for attempt in range(2):
+        raw = client.chat(
+            model="hermes-agent",
+            timeout=20,
+            messages=[{
+                "role": "user",
+                "content": json.dumps(
+                    _template_selection_prompt(
+                        session,
+                        tuple(excluded),
+                        repair_attempt=attempt == 1,
+                        rejected_labels=rejected_labels,
+                    ),
+                    ensure_ascii=False,
+                ),
+            }],
+            response_format={"type": "json_object"},
+        )
+        try:
+            content = raw["choices"][0]["message"]["content"]
+            selection = (
+                HermesTemplateSelection.model_validate_json(content)
+                if isinstance(content, str)
+                else HermesTemplateSelection.model_validate(content)
+            )
+            if selection.template_id not in DOMAIN_TEMPLATES and selection.template_id != "none":
+                raise ValueError("Hermes selected an unknown template")
+            if selection.template_id in excluded:
+                raise ValueError("Hermes selected an excluded template")
+        except Exception:
+            if attempt == 1:
+                raise
+            continue
+
+        override_values = [
+            *selection.field_label_overrides.values(),
+            *selection.section_title_overrides.values(),
+            *selection.metric_label_overrides.values(),
+        ]
+        sensitive = find_sensitive_labels(override_values)
+        if sensitive and attempt == 0:
+            rejected_labels = sensitive
+            continue
+
+        if selection.template_id == "none":
+            return "generic", DOMAIN_TEMPLATES["generic"], None
+
+        accepted = {
+            "fields": {
+                key: value for key, value in selection.field_label_overrides.items()
+                if value not in sensitive
+            },
+            "sections": {
+                key: value for key, value in selection.section_title_overrides.items()
+                if value not in sensitive
+            },
+            "metrics": {
+                key: value for key, value in selection.metric_label_overrides.items()
+                if value not in sensitive
+            },
+        }
+        template = apply_template_overrides(DOMAIN_TEMPLATES[selection.template_id], accepted)
+        return selection.template_id, template, selection.reasoning
+    raise ValueError("Hermes did not return a valid template selection")
+
+
+def select_template_for_intake(
+    session: object,
+    exclude_template_ids: Sequence[str] = (),
+) -> tuple[str, DomainTemplate, str | None]:
+    """Select a safe curated template, failing open to the generic preview."""
+
+    from dashboard.api.hermes import provider_registry
+
+    # The managed Hermes gateway can be up (client is not None) with zero
+    # providers actually configured -- the gateway process itself doesn't
+    # need a provider key to start, only to answer a real chat completion.
+    # Without this check, a healthy-but-unconfigured gateway would make a
+    # real (slow-failing) network call on every first-time dashboard
+    # creation instead of failing open immediately like the rest of this
+    # function already does for other unavailability cases.
+    if managed_hermes.client is None or not any(item.connected for item in provider_registry.list()):
+        return "generic", DOMAIN_TEMPLATES["generic"], None
+    try:
+        return _hermes_template_selection(session, exclude_template_ids)
+    except httpx.HTTPError:
+        support_events.record(
+            "hermes_template_unavailable",
+            level="WARNING",
+            details={"code": "provider_unavailable", "component": "intake_template"},
+        )
+    except Exception:
+        support_events.record(
+            "hermes_template_invalid",
+            level="WARNING",
+            details={"code": "invalid_template_selection", "component": "intake_template"},
+        )
+    return "generic", DOMAIN_TEMPLATES["generic"], None
+
+
 @app.post("/api/intake", response_model=IntakeResponse, status_code=status.HTTP_201_CREATED)
 def start_intake(payload: StartIntakeRequest) -> IntakeResponse:
     return intake_store.start(payload.language)
@@ -198,6 +366,27 @@ def intake_preview(session_id: UUID) -> IntakeWorkspacePreview:
         raise HTTPException(status_code=404, detail="Intake session not found") from exc
     if response.step.value != "complete":
         raise HTTPException(status_code=409, detail="Complete intake before generating a preview")
+
+    stored_template_id = intake_store.get_resource(session_id, "_template_id")
+    if stored_template_id in DOMAIN_TEMPLATES:
+        template_id = stored_template_id
+        template = DOMAIN_TEMPLATES[template_id]
+        reasoning = intake_store.get_resource(session_id, "_template_reasoning") or None
+        selection = (template_id, template, reasoning)
+    else:
+        selection = select_template_for_intake(response)
+        template_id, _, reasoning = selection
+        intake_store.set_resource(session_id, "_template_id", template_id)
+        intake_store.set_resource(session_id, "_template_attempts", "1")
+        intake_store.set_resource(session_id, "_template_reasoning", reasoning or "")
+    return _build_intake_preview(session_id, selection)
+
+
+def _build_intake_preview(
+    session_id: UUID,
+    selection: tuple[str, DomainTemplate, str | None],
+) -> IntakeWorkspacePreview:
+    response = intake_store.get(session_id)
     language = response.language.value
     title = response.confirmed_context.get("goal", "Dashboard")[:120]
     saved_draft = intake_store.get_resource(session_id, "_draft")
@@ -209,25 +398,38 @@ def intake_preview(session_id: UUID) -> IntakeWorkspacePreview:
         if marker in requested_outputs
     ]
     enabled_outputs = list(dict.fromkeys(enabled_outputs)) or [OutputKind.WEB]
-    fields = [
-        FieldDefinition(id="group", label=terminology.get("group", "Grupo" if language == "pt" else "Group"), kind=FieldKind.TEXT),
-        FieldDefinition(id="value", label=terminology.get("value", "Valor" if language == "pt" else "Value"), kind=FieldKind.NUMBER),
-    ]
-    section_order = draft_options.section_order if draft_options else ["summary", "distribution", "details"]
-    order_index = {identifier: index for index, identifier in enumerate(section_order)}
+
+    template_id, selected_template, reasoning = selection
+    if template_id == "generic":
+        template = build_generic_template(
+            language=language,
+            terminology=terminology,
+            chart_type=draft_options.chart_type if draft_options else "bar",
+            section_order=draft_options.section_order if draft_options else ("summary", "distribution", "details"),
+        )
+    else:
+        fields = [
+            item.model_copy(update={"label": terminology.get(item.id, item.label)})
+            if item.id in terminology and terminology[item.id].strip()
+            else item
+            for item in selected_template.fields
+        ]
+        section_order = draft_options.section_order if draft_options else ["summary", "distribution", "details"]
+        order_index = {identifier: index for index, identifier in enumerate(section_order)}
+        sections = [item.model_copy(update={"order": order_index.get(item.id, item.order)}) for item in selected_template.sections]
+        visualizations = [
+            item.model_copy(update={"kind": VisualizationKind(draft_options.chart_type if draft_options else "bar")})
+            for item in selected_template.visualizations
+        ]
+        template = selected_template.model_copy(update={"fields": fields, "sections": sections, "visualizations": visualizations})
+
+    fields = template.fields
     spec = DashboardSpec(
         id=f"intake-{session_id}", title=title, fields=fields,
         mappings=[FieldMapping(source_field=item.id, target_field=item.id, approved=True) for item in fields],
-        metrics=[
-            MetricDefinition(id="records", label="Registros" if language == "pt" else "Records", operation="count", explanation="Contagem de registros." if language == "pt" else "Count of records.", approved=True),
-            MetricDefinition(id="total", label="Total", operation="sum", field="value", explanation="Soma determinística dos valores." if language == "pt" else "Deterministic sum of values.", approved=True),
-        ],
-        visualizations=[VisualizationSpec(id="distribution", kind=VisualizationKind(draft_options.chart_type if draft_options else "bar"), title="Distribuição" if language == "pt" else "Distribution", dimension_field="group", value_field="value")],
-        sections=[
-            SectionSpec(id="summary", title="Resumo" if language == "pt" else "Summary", kind=SectionKind.METRICS, metric_ids=["records", "total"], order=order_index["summary"]),
-            SectionSpec(id="distribution", title="Distribuição" if language == "pt" else "Distribution", kind=SectionKind.CHART, visualization_ids=["distribution"], depends_on=["summary"], order=order_index["distribution"]),
-            SectionSpec(id="details", title="Detalhes" if language == "pt" else "Details", kind=SectionKind.TABLE, field_ids=["group", "value"], depends_on=["summary"], order=order_index["details"]),
-        ],
+        metrics=template.metrics,
+        visualizations=template.visualizations,
+        sections=template.sections,
         layout=LayoutSpec(), localization=LocalizationSpec(language=language, locale="pt-BR" if language == "pt" else "en-US", timezone="America/Sao_Paulo" if language == "pt" else "UTC"),
         privacy=PrivacyPolicy(), outputs=OutputSpec(enabled=enabled_outputs),
         terminology=terminology,
@@ -254,7 +456,36 @@ def intake_preview(session_id: UUID) -> IntakeWorkspacePreview:
         document=document,
         approval=approval,
         project_id=UUID(linked_project) if linked_project else None,
+        template_id=template_id if template_id != "generic" else None,
+        template_reasoning=reasoning if template_id != "generic" else None,
     )
+
+
+@app.post("/api/intake/{session_id}/retry-template", response_model=IntakeWorkspacePreview)
+def retry_intake_template(session_id: UUID) -> IntakeWorkspacePreview:
+    try:
+        response = intake_store.get(session_id)
+        attempts_raw = intake_store.get_resource(session_id, "_template_attempts") or "0"
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Intake session not found") from exc
+    if response.step.value != "complete":
+        raise HTTPException(status_code=409, detail="Complete intake before generating a preview")
+    try:
+        attempts = int(attempts_raw)
+    except ValueError:
+        attempts = 0
+    if attempts >= 2:
+        raise HTTPException(status_code=409, detail="No more template attempts remain")
+
+    previous_id = intake_store.get_resource(session_id, "_template_id")
+    excluded = [previous_id] if previous_id and previous_id != "generic" else []
+    selection = select_template_for_intake(response, exclude_template_ids=excluded)
+    template_id, _, reasoning = selection
+    intake_store.set_resource(session_id, "_template_attempts", str(attempts + 1))
+    intake_store.set_resource(session_id, "_template_id", template_id)
+    intake_store.set_resource(session_id, "_template_reasoning", reasoning or "")
+    intake_store.set_resource(session_id, "_approval_id", "")
+    return _build_intake_preview(session_id, selection)
 
 
 @app.post("/api/intake/{session_id}/project-link", status_code=204)

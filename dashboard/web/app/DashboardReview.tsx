@@ -15,7 +15,7 @@ type Document = {
   synthetic: boolean;
 };
 type Approval = { approval_id: string; sections: Record<string, { section_id: string; status: "pending" | "approved" | "rejected" | "blocked"; depends_on: string[] }>; ready_to_activate: boolean };
-type Workspace = { document: Document; approval: Approval; project_id: string | null };
+type Workspace = { document: Document; approval: Approval; project_id: string | null; template_id: string | null; template_reasoning: string | null };
 type Draft = { version: number; accent_color: string; chart_type: ChartKind; section_order: string[]; terminology: Record<string, string>; feedback_applied_by_hermes: boolean };
 type Diagnostics = { diagnostic_id: string; ok: boolean; components: Record<string, { ok: boolean; remediation: string | null }> };
 type RuntimeStatus = { ready: boolean; provider_ready?: boolean };
@@ -24,6 +24,11 @@ type Props = { language: Language; sessionId: string; context: Record<string, st
 const labels = {
   en: { title: "Synthetic dashboard review", notice: "All values are invented. The server generated this document; approvals apply to every selected output.", approve: "Approve section", revise: "Request revision", feedback: "Describe the change", feedbackSafe: "This feedback is non-confidential and may be sent to Hermes", apply: "Ask Hermes", save: "Save controls as draft", activate: "Create project and activate approved specification", saved: "Project saved and ready for source setup.", color: "Accent color", chart: "Chart type", approved: "Approved", pending: "Pending review", rejected: "Revision requested", blocked: "Blocked by dependency", runtime: "Hermes runtime", loading: "Loading the server-generated preview…", retry: "Try again", draft: "Draft", noMutation: "The active approved specification is unchanged.", error: "The preview could not be loaded.", guidance: "Check that the local API and Hermes runtime are running, then retry.", pathError: "Enter an absolute local project path, such as C:\\Users\\Name\\Documents\\DashboardProject.", diagnostics: "Diagnostics", downloadSupport: "Download sanitized support bundle", providerSetup: "Connect an AI provider", providerNeeded: "Connect a provider before asking Hermes for a revision.", apiKey: "API key (stored in the Windows credential vault)", connectProvider: "Connect provider", providerConnected: "Provider connected. Hermes revisions are available." },
   pt: { title: "Revisão sintética do dashboard", notice: "Todos os valores são inventados. O servidor gerou este documento; as aprovações valem para todas as saídas.", approve: "Aprovar seção", revise: "Solicitar revisão", feedback: "Descreva a alteração", feedbackSafe: "Este feedback não é confidencial e pode ser enviado ao Hermes", apply: "Pedir ao Hermes", save: "Salvar controles como rascunho", activate: "Criar projeto e ativar especificação aprovada", saved: "Projeto salvo e pronto para configurar a fonte.", color: "Cor de destaque", chart: "Tipo de gráfico", approved: "Aprovado", pending: "Aguardando revisão", rejected: "Revisão solicitada", blocked: "Bloqueado por dependência", runtime: "Runtime Hermes", loading: "Carregando a prévia gerada pelo servidor…", retry: "Tentar novamente", draft: "Rascunho", noMutation: "A especificação ativa aprovada não foi alterada.", error: "Não foi possível carregar a prévia.", guidance: "Verifique se a API local e o Hermes estão ativos e tente novamente.", pathError: "Informe um caminho local absoluto, como C:\\Users\\Nome\\Documents\\ProjetoDashboard.", diagnostics: "Diagnósticos", downloadSupport: "Baixar pacote de suporte sanitizado", providerSetup: "Conectar um provider de IA", providerNeeded: "Conecte um provider antes de pedir uma revisão ao Hermes.", apiKey: "Chave da API (armazenada no cofre de credenciais do Windows)", connectProvider: "Conectar provider", providerConnected: "Provider conectado. As revisões do Hermes estão disponíveis." },
+};
+
+const templateCopy = {
+  en: { basedOn: "Based on a {template} template. {reasoning}", retry: "Try a different template", exhausted: "No more template attempts remain." },
+  pt: { basedOn: "Baseado em um modelo de {template}. {reasoning}", retry: "Tentar um modelo diferente", exhausted: "Não há mais tentativas de modelo." },
 };
 
 function problemMessage(problem: unknown, fallback: string): string {
@@ -60,6 +65,7 @@ export default function DashboardReview({ language, sessionId, context }: Props)
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [retryAvailable, setRetryAvailable] = useState(true);
   const [projectId, setProjectId] = useState<string | null>(null);
   const locale = language === "pt" ? "pt-BR" : "en-US";
 
@@ -120,6 +126,19 @@ export default function DashboardReview({ language, sessionId, context }: Props)
       });
       if (!response.ok) { const problem = await response.json(); throw new Error(problemMessage(problem, t.guidance)); }
       setApiKey(""); setProviderStatus(t.providerConnected);
+      await load();
+    } catch (problem) { setError(problem instanceof Error ? problem.message : t.guidance); }
+    finally { setBusy(false); }
+  };
+  const retryTemplate = async () => {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/backend/api/intake/${sessionId}/retry-template`, { method: "POST" });
+      if (!response.ok) {
+        if (response.status === 409) { setRetryAvailable(false); setError(templateCopy[language].exhausted); return; }
+        const problem = await response.json(); throw new Error(problemMessage(problem, t.guidance));
+      }
+      setRetryAvailable(false);
       await load();
     } catch (problem) { setError(problem instanceof Error ? problem.message : t.guidance); }
     finally { setBusy(false); }
@@ -187,7 +206,7 @@ export default function DashboardReview({ language, sessionId, context }: Props)
       {projectId && <p className="success">{t.saved}</p>}
       {error && <p className="error" role="alert">{error}</p>}
     </aside>
-    <div className="dashboard-preview"><div className="synthetic-banner">{t.notice}</div>{order.map((id, position) => {
+    <div className="dashboard-preview"><div className="synthetic-banner">{t.notice}</div>{workspace.template_id && <p className="template-note">{templateCopy[language].basedOn.replace("{template}", workspace.template_id.replaceAll("_", " ")).replace("{reasoning}", workspace.template_reasoning ?? "")}</p>}{retryAvailable && <button onClick={() => void retryTemplate()} disabled={busy}>{templateCopy[language].retry}</button>}{order.map((id, position) => {
       const section = sectionsById[id]; if (!section) return null;
       const decision = approval.sections[id];
       const controls = <div className="section-actions"><span className={`status ${decision?.status ?? "pending"}`}>{statusLabel(decision?.status ?? "pending")}</span><button disabled={busy || decision?.status === "blocked"} onClick={() => void decide(id, true)}>{t.approve}</button><button disabled={busy || decision?.status === "blocked"} onClick={() => void decide(id, false)}>{t.revise}</button><button aria-label="up" onClick={() => move(id, -1)}>↑</button><button aria-label="down" onClick={() => move(id, 1)}>↓</button></div>;

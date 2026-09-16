@@ -93,11 +93,11 @@ class HermesClient:
             response.raise_for_status()
             return response.json()
 
-    def chat(self, *, model: str, messages: list[dict[str, str]], response_format: dict[str, Any] | None = None) -> dict[str, Any]:
+    def chat(self, *, model: str, messages: list[dict[str, str]], response_format: dict[str, Any] | None = None, timeout: float = 120) -> dict[str, Any]:
         payload: dict[str, Any] = {"model": model, "messages": messages}
         if response_format is not None:
             payload["response_format"] = response_format
-        with httpx.Client(base_url=self.base_url, transport=self.transport, timeout=120) as client:
+        with httpx.Client(base_url=self.base_url, transport=self.transport, timeout=timeout) as client:
             response = client.post("/v1/chat/completions", json=payload, headers={"Authorization": f"Bearer {self.api_key}"})
             response.raise_for_status()
             return response.json()
