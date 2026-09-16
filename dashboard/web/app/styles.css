@@ -48,6 +48,9 @@ button, textarea, select, input { font: inherit; }
 }
 .language-switch button.active { color: white; background: var(--blue); }
 
+.link-back { display: inline-block; margin-bottom: 14px; border: 0; background: transparent; padding: 0; color: var(--blue); font-weight: 700; cursor: pointer; }
+.review-sidebar .link-back { color: #93c5fd; }
+
 .eyebrow {
   margin: 28px 0 12px;
   color: var(--blue);
@@ -168,6 +171,13 @@ textarea:focus, input:focus, select:focus { border-color: var(--focus-blue); box
 .review-sidebar label:has(textarea) { grid-template-columns: 1fr; }
 .review-sidebar input[type="color"] { width: 48px; height: 34px; border: 0; background: transparent; }
 .review-sidebar select, .review-sidebar textarea, .review-sidebar input[type="password"] { min-width: 0; border: 1px solid #48658c; border-radius: 9px; padding: 9px; color: white; background: #142f52; }
+.hermes-chat { display: grid; gap: 10px; max-height: 260px; overflow-y: auto; margin: 16px 0; padding: 12px; border: 1px solid #334c70; border-radius: 12px; background: #0e2545; }
+.hermes-chat-turn { display: grid; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid #24406b; font-size: .82rem; }
+.hermes-chat-turn:last-child { border-bottom: 0; padding-bottom: 0; }
+.hermes-chat-request { margin: 0; color: #dfe7f7; font-weight: 700; }
+.hermes-chat-reply { margin: 0; color: #b7c8e8; }
+.hermes-chat-reply strong { color: #93c5fd; }
+.hermes-chat-empty { margin: 0; color: #93a9c7; font-size: .82rem; }
 .dashboard-preview { width: min(1120px, 100%); margin: 0 auto; padding: 32px clamp(20px, 4vw, 58px) 80px; }
 .synthetic-banner { margin-bottom: 16px; padding: 12px 16px; border-radius: 10px; color: #664d1c; background: #fff4cf; font-size: .86rem; }
 .review-section { margin: 18px 0; padding: 24px; border: 1px solid #d9dfda; border-radius: 18px; background: white; box-shadow: 0 8px 30px rgba(25,34,29,.05); }

@@ -53,6 +53,7 @@ def test_hermes_draft_has_one_bounded_repair_attempt(monkeypatch) -> None:
                 "chart_type": "bar",
                 "section_order": ["summary", "distribution", "details"],
                 "terminology": {},
+                "reasoning": "Kept the approved blue accent as requested.",
             })
             return {"choices": [{"message": {"content": content}}]}
 
@@ -69,6 +70,12 @@ def test_hermes_draft_has_one_bounded_repair_attempt(monkeypatch) -> None:
     })
     assert response.status_code == 201
     assert response.json()["feedback_applied_by_hermes"] is True
+    assert response.json()["feedback_reasoning"] == "Kept the approved blue accent as requested."
+    assert response.json()["feedback_history"] == [{
+        "feedback": "Use the approved blue style",
+        "reasoning": "Kept the approved blue accent as requested.",
+        "version": 1,
+    }]
     assert hermes.calls == 2
 
 

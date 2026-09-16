@@ -70,6 +70,7 @@ const copy = {
     newProject: "Create new project",
     openProject: "Open project",
     noProjects: "No projects have been created yet.",
+    backToProjects: "← All dashboards",
   },
   pt: {
     eyebrow: "Área de trabalho local",
@@ -98,6 +99,7 @@ const copy = {
     newProject: "Criar novo projeto",
     openProject: "Abrir projeto",
     noProjects: "Nenhum projeto foi criado ainda.",
+    backToProjects: "← Todos os dashboards",
   },
 };
 
@@ -246,7 +248,7 @@ export default function SetupPage() {
   }
 
   if (session?.step === "complete") {
-    return <DashboardReview language={language} sessionId={session.session_id} context={session.confirmed_context} />;
+    return <DashboardReview language={language} sessionId={session.session_id} context={session.confirmed_context} onBack={backToProjects} />;
   }
 
   return (
@@ -258,6 +260,7 @@ export default function SetupPage() {
             <button className={language === "pt" ? "active" : ""} onClick={() => setLanguage("pt")}>PT</button>
           </div>
         )}
+        <button type="button" className="link-back" onClick={backToProjects}>{text.backToProjects}</button>
         <p className="eyebrow">{text.eyebrow}</p>
         {
           <form onSubmit={submit}>

@@ -94,6 +94,13 @@ class PreviewDraftRequest(BaseModel):
     feedback_non_confidential: bool = False
 
 
+class FeedbackTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    feedback: str
+    reasoning: str
+    version: int
+
+
 class PreviewDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
     version: int
@@ -103,6 +110,17 @@ class PreviewDraft(BaseModel):
     section_order: list[str]
     terminology: dict[str, str]
     feedback_applied_by_hermes: bool = False
+    feedback_reasoning: str | None = None
+    feedback_history: list[FeedbackTurn] = Field(default_factory=list)
+
+
+class HermesDraftProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    accent_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    chart_type: str = Field(pattern=r"^(bar|line|pie)$")
+    section_order: list[str] = Field(min_length=1)
+    terminology: dict[str, str] = Field(default_factory=dict)
+    reasoning: str = Field(min_length=1, max_length=400)
 
 
 @asynccontextmanager
@@ -537,6 +555,7 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
                 "message": "Hermes is not ready. Connect an AI provider and try again.",
                 "fields": [{"field": "provider", "message": "Choose a provider and connect its API key."}],
             })
+        original_feedback = payload.feedback
         allowed_sections = {"summary", "distribution", "details"}
         for attempt in range(2):
             try:
@@ -544,7 +563,7 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
                     raw = client.chat(
                         model="hermes-agent",
                         messages=[{"role": "user", "content": json.dumps({
-                            "instruction": "Return one strict JSON object with accent_color, chart_type, section_order, and terminology only. Include every section exactly once.",
+                            "instruction": "Return one strict JSON object with accent_color, chart_type, section_order, terminology, and reasoning only. Include every section exactly once. reasoning is a short, plain-language explanation (max 400 characters) of what you changed and why, addressed to the user.",
                             "feedback": payload.feedback,
                             "current": payload.model_dump(exclude={"feedback"}),
                             "required_sections": sorted(allowed_sections),
@@ -560,10 +579,14 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
                         "fields": [{"field": "provider", "message": "Check the API key, provider access, and network connection."}],
                     }) from exc
                 content = raw["choices"][0]["message"]["content"]
-                proposed = PreviewDraftRequest.model_validate_json(content).model_copy(update={"feedback": None, "feedback_non_confidential": False})
-                if set(proposed.section_order) != allowed_sections or len(proposed.section_order) != len(allowed_sections):
+                proposed_raw = HermesDraftProposal.model_validate_json(content)
+                if set(proposed_raw.section_order) != allowed_sections or len(proposed_raw.section_order) != len(allowed_sections):
                     raise ValueError("Invalid reviewed section order")
-                payload = proposed
+                payload = PreviewDraftRequest(
+                    accent_color=proposed_raw.accent_color, chart_type=proposed_raw.chart_type,
+                    section_order=proposed_raw.section_order, terminology=proposed_raw.terminology,
+                )
+                reasoning = proposed_raw.reasoning
                 hermes_applied = True
                 break
             except HTTPException:
@@ -580,6 +603,8 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
                     }) from exc
     else:
         hermes_applied = False
+        reasoning = None
+        original_feedback = None
     allowed_sections = {"summary", "distribution", "details"}
     if set(payload.section_order) != allowed_sections or len(payload.section_order) != len(allowed_sections):
         raise HTTPException(status_code=409, detail="Draft section order must contain every reviewed section exactly once")
@@ -588,11 +613,17 @@ def create_intake_draft(session_id: UUID, payload: PreviewDraftRequest) -> Previ
             safe_memory_store.remember(kind=MemoryKind.PROJECT_TERMINOLOGY, key=key, value=value)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="Draft terminology appears confidential and was not persisted") from exc
-    version = PreviewDraft.model_validate_json(previous).version + 1 if previous else 1
+    previous_draft = PreviewDraft.model_validate_json(previous) if previous else None
+    version = previous_draft.version + 1 if previous_draft else 1
+    history = list(previous_draft.feedback_history) if previous_draft else []
+    if hermes_applied and reasoning and original_feedback:
+        history.append(FeedbackTurn(feedback=original_feedback, reasoning=reasoning, version=version))
+        history = history[-20:]
     draft = PreviewDraft(
         version=version, accent_color=payload.accent_color, chart_type=payload.chart_type,
         section_order=payload.section_order, terminology=payload.terminology,
-        feedback_applied_by_hermes=hermes_applied,
+        feedback_applied_by_hermes=hermes_applied, feedback_reasoning=reasoning,
+        feedback_history=history,
     )
     intake_store.set_resource(session_id, "_draft", draft.model_dump_json())
     # Any structural/design change starts a fresh review package.  The active
