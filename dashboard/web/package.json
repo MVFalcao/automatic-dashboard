@@ -9,7 +9,7 @@
     "dev": "next dev -H 127.0.0.1",
     "build": "next build",
     "start": "next start -H 127.0.0.1",
-    "check": "tsc --noEmit",
+    "check": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test"
   },
