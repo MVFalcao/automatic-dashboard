@@ -59,7 +59,7 @@ def test_hermes_draft_has_one_bounded_repair_attempt(monkeypatch) -> None:
 
     hermes = Client()
     monkeypatch.setattr("dashboard.api.main.managed_hermes.client", hermes)
-    monkeypatch.setattr("dashboard.api.main.safe_memory_store", _Memory())
+    monkeypatch.setattr("dashboard.api.intake_workspace.safe_memory_store", _Memory())
     response = client.post(f"/api/intake/{session_id}/draft", json={
         "accent_color": "#1D4ED8",
         "chart_type": "bar",
@@ -91,7 +91,7 @@ def test_invalid_hermes_draft_is_safe_and_structured(monkeypatch) -> None:
 
     hermes = Client()
     monkeypatch.setattr("dashboard.api.main.managed_hermes.client", hermes)
-    monkeypatch.setattr("dashboard.api.main.safe_memory_store", _Memory())
+    monkeypatch.setattr("dashboard.api.intake_workspace.safe_memory_store", _Memory())
     response = client.post(f"/api/intake/{session_id}/draft", json={
         "accent_color": "#1D4ED8", "chart_type": "bar",
         "section_order": ["summary", "distribution", "details"],
@@ -117,7 +117,7 @@ def test_unavailable_provider_is_not_misreported_as_invalid_draft(monkeypatch) -
 
     hermes = Client()
     monkeypatch.setattr("dashboard.api.main.managed_hermes.client", hermes)
-    monkeypatch.setattr("dashboard.api.main.safe_memory_store", _Memory())
+    monkeypatch.setattr("dashboard.api.intake_workspace.safe_memory_store", _Memory())
     response = client.post(f"/api/intake/{session_id}/draft", json={
         "accent_color": "#1D4ED8", "chart_type": "bar",
         "section_order": ["summary", "distribution", "details"],
@@ -228,7 +228,7 @@ def test_incompatible_codex_model_blocks_authenticated_revision(monkeypatch) -> 
         token_estimate=TokenEstimate(input_tokens=0, output_tokens=0),
     )
     provider_registry.connect(connection)
-    monkeypatch.setattr("dashboard.api.main.safe_memory_store", _Memory())
+    monkeypatch.setattr("dashboard.api.intake_workspace.safe_memory_store", _Memory())
     try:
         response = client.post(f"/api/intake/{session_id}/draft", json={
             "accent_color": "#1D4ED8", "chart_type": "bar",

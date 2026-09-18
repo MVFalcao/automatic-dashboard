@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID, uuid4
@@ -11,6 +10,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from automation.agent.client import call_hermes_json
 from automation.agent.managed import managed_hermes
 from automation.approval.models import ApprovalPackage, CreateApprovalRequest
 from automation.approval.service import approval_store
@@ -154,13 +154,7 @@ def _hermes_proposal(active: DashboardSpec, payload: ProjectRevisionRequest) -> 
             "repair_attempt": attempt == 1,
         }
         try:
-            raw = client.chat(
-                model="hermes-agent",
-                messages=[{"role": "user", "content": json.dumps(message, ensure_ascii=False)}],
-                response_format={"type": "json_object"},
-            )
-            content = raw["choices"][0]["message"]["content"]
-            proposed = HermesRevisionProposal.model_validate_json(content) if isinstance(content, str) else HermesRevisionProposal.model_validate(content)
+            proposed = call_hermes_json(client, message, HermesRevisionProposal)
             specification = _validate_proposal(proposed.specification, active)
             answer = redact_text(proposed.answer).strip()
             if not answer:

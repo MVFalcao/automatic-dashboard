@@ -164,3 +164,24 @@ class HermesClient:
             return result
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise HermesExecutionError("Hermes returned an invalid or unavailable structured response") from exc
+
+
+def call_hermes_json(client: HermesClient, message: dict[str, Any], response_model: type[T], *, timeout: float | None = None) -> T:
+    """Send one structured-JSON chat request to Hermes and parse the reply.
+
+    This is the shared request/parse mechanics behind every "ask Hermes for a
+    typed JSON object" call site (template selection, draft revisions, project
+    revisions). Callers keep their own attempt-loop and error-reporting policy:
+    this raises httpx.HTTPError on transport failure, and a pydantic
+    ValidationError or plain ValueError on a malformed reply.
+    """
+
+    kwargs: dict[str, Any] = {"timeout": timeout} if timeout is not None else {}
+    raw = client.chat(
+        model="hermes-agent",
+        messages=[{"role": "user", "content": json.dumps(message, ensure_ascii=False)}],
+        response_format={"type": "json_object"},
+        **kwargs,
+    )
+    content = raw["choices"][0]["message"]["content"]
+    return response_model.model_validate_json(content) if isinstance(content, str) else response_model.model_validate(content)

@@ -7,7 +7,8 @@ from automation.agent.models import AuthMethod, ProviderConnection, ProviderName
 from automation.agent.credentials import CredentialReference
 from automation.specification.templates import DOMAIN_TEMPLATES, find_sensitive_labels
 from dashboard.api.hermes import provider_registry
-from dashboard.api.main import app, select_template_for_intake
+from dashboard.api.intake_workspace import select_template_for_intake
+from dashboard.api.main import app
 
 
 client = TestClient(app)
