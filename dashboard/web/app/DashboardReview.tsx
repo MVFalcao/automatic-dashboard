@@ -32,7 +32,7 @@ const templateCopy = {
   pt: { basedOn: "Baseado em um modelo de {template}. {reasoning}", retry: "Tentar um modelo diferente", exhausted: "Não há mais tentativas de modelo." },
 };
 
-function problemMessage(problem: unknown, fallback: string): string {
+export function problemMessage(problem: unknown, fallback: string): string {
   if (!problem || typeof problem !== "object") return fallback;
   const detail = (problem as { detail?: unknown }).detail;
   if (typeof detail === "string") return detail;
@@ -45,7 +45,7 @@ function problemMessage(problem: unknown, fallback: string): string {
   return fallback;
 }
 
-function isAbsoluteLocalPath(value: string): boolean {
+export function isAbsoluteLocalPath(value: string): boolean {
   const path = value.trim();
   return !/^https?:\/\//i.test(path) && (/^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path) || path.startsWith("/"));
 }

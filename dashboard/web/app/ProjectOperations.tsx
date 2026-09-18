@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PreviewSectionBody, type PreviewField, type PreviewMetric, type PreviewSectionSpec } from "./DashboardPreviewSection";
+import RevisionPreview, { type Revision, type RevisionApproval as Approval } from "./RevisionPreview";
 
 type Props = { language: "en" | "pt"; projectId: string; projectDirectory: string; outputs: string[]; fields: Field[]; activeSpecificationVersion?: number; projectNonConfidential?: boolean; onSpecificationActivated?: (specification: ProjectSpecification, version: number) => void };
 type Field = { id: string; label: string };
@@ -11,9 +11,6 @@ type ImportInspection = { id: string; plan: { mappings: Array<{ source_column: s
 type Diagnostics = { diagnostic_id: string; ok: boolean; components: Record<string, { ok: boolean; remediation: string | null }>; checks: Array<{ name: string; ok: boolean; detail: string; remediation: string | null }> };
 type RunHistoryRecord = { id: string; metrics: Record<string, number | null>; freshness_at: string | null; status: string; duration_seconds: number | null; started_at: string };
 type MemoryEntry = { kind: string; key: string; value: string | number | boolean | string[] };
-type Approval = { approval_id: string; ready_to_activate: boolean; sections: Record<string, { section_id: string; status: "pending" | "approved" | "rejected" | "blocked" }> };
-type RevisionSpecification = { title: string; fields: PreviewField[]; metrics: PreviewMetric[]; outputs: { enabled: string[] }; sections: PreviewSectionSpec[]; style: { palette: string[] } };
-type Revision = { id: string; base_version: number; mode: "update" | "recreate"; hermes_response: string; active_specification_unchanged: boolean; specification: RevisionSpecification; approval: Approval; preview: { synthetic: boolean; metrics: Record<string, number | null>; records: Array<Record<string, unknown>> } };
 type ActivatedWorkspace = { project: { active_specification_version: number }; specification: ProjectSpecification };
 
 const copy = {
@@ -173,7 +170,20 @@ export default function ProjectOperations({ language, projectId, projectDirector
   })}</div>);
 
   return <section className="operations" aria-labelledby="operations-title"><h2 id="operations-title">{t.title}</h2><p>{t.formats}</p>
-    <details open={revisionOpen} onToggle={(event) => setRevisionOpen(event.currentTarget.open)}><summary>{t.updateDashboard}</summary><p>{t.updateHelp}</p><label>{t.instruction}<textarea rows={4} value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} /></label><label><input type="checkbox" checked={revisionInstructionSafe} onChange={(event) => setRevisionInstructionSafe(event.target.checked)} /> {t.instructionSafe}</label><div className="revision-actions"><button disabled={busy || !revisionInstruction.trim() || !revisionInstructionSafe} onClick={() => requestRevision("update")}>{t.askUpdate}</button><button disabled={busy || !revisionInstruction.trim() || !revisionInstructionSafe} onClick={() => requestRevision("recreate")}>{t.askRecreate}</button></div>{revision && <div className="revision-preview" style={{ "--accent": revision.specification.style.palette[0] ?? "#1D4ED8" } as React.CSSProperties}><section className="hermes-response" aria-live="polite"><strong>{t.hermesResponse}</strong><p>{revision.hermes_response}</p></section><div className="revision-preview-heading"><div><span className="status revision">{t.syntheticRevision}</span><h3>{revision.specification.title}</h3><p>{t.activeUnchanged} · v{revision.base_version}</p></div><button onClick={returnToProject}>{t.returnProject}</button></div>{revision.specification.sections.map((section) => { const decision = revision.approval.sections[section.id]; return <section className="review-section revision-section" key={section.id}><header><h3>{section.title}</h3><div className="section-actions"><span className={`status ${decision?.status === "approved" ? "approved" : "revision"}`}>{decision?.status ?? "pending"}</span><button disabled={busy || decision?.status === "blocked"} onClick={() => decideRevision(section.id, true)}>{t.approveSection}</button><button disabled={busy || decision?.status === "blocked"} onClick={() => decideRevision(section.id, false)}>{t.rejectSection}</button></div></header><PreviewSectionBody section={section} fields={revision.specification.fields} metrics={revision.specification.metrics} records={revision.preview.records} metricValues={revision.preview.metrics} color={revision.specification.style.palette[0] ?? "#1D4ED8"} chartKind="bar" locale={language === "pt" ? "pt-BR" : "en-US"} /></section>; })}{revision.approval.ready_to_activate && <div className="revision-activation">{!projectNonConfidential && <label><input type="checkbox" checked={revisionActivationSafe} onChange={(event) => setRevisionActivationSafe(event.target.checked)} /> {t.activationSafe}</label>}<button className="primary" disabled={busy || (!projectNonConfidential && !revisionActivationSafe)} onClick={activateRevision}>{t.activateRevision}</button></div>}</div>}</details>
+    <details open={revisionOpen} onToggle={(event) => setRevisionOpen(event.currentTarget.open)}><summary>{t.updateDashboard}</summary><p>{t.updateHelp}</p><label>{t.instruction}<textarea rows={4} value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} /></label><label><input type="checkbox" checked={revisionInstructionSafe} onChange={(event) => setRevisionInstructionSafe(event.target.checked)} /> {t.instructionSafe}</label><div className="revision-actions"><button disabled={busy || !revisionInstruction.trim() || !revisionInstructionSafe} onClick={() => requestRevision("update")}>{t.askUpdate}</button><button disabled={busy || !revisionInstruction.trim() || !revisionInstructionSafe} onClick={() => requestRevision("recreate")}>{t.askRecreate}</button></div>
+      {revision && <RevisionPreview
+        revision={revision}
+        busy={busy}
+        language={language}
+        projectNonConfidential={projectNonConfidential}
+        revisionActivationSafe={revisionActivationSafe}
+        onActivationSafeChange={setRevisionActivationSafe}
+        onDecide={decideRevision}
+        onActivate={() => void activateRevision()}
+        onReturn={returnToProject}
+        copy={t}
+      />}
+    </details>
     <details open><summary>{t.source}</summary><label>{t.endpoint}<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://api.example.com/records" /></label><label>{t.sample}<textarea value={sample} onChange={(event) => setSample(event.target.value)} rows={4} /></label><button disabled={busy || !endpoint} onClick={saveAndInspect}>{t.inspect}</button><button disabled={busy || !inspection} onClick={approveSource}>{t.approve}</button><button disabled={busy || !approvalId} onClick={sync}>{t.sync}</button>{inspection && <div className="table-wrap"><table><thead><tr><th>{t.field}</th><th>{t.type}</th><th>{t.missing}</th><th>{t.examples}</th></tr></thead><tbody>{inspection.inspection.fields.map((field) => <tr key={field.path}><td>{field.name}</td><td>{field.type}</td><td>{new Intl.NumberFormat(language === "pt" ? "pt-BR" : "en-US", { style: "percent", maximumFractionDigits: 1 }).format(field.missing_rate)}</td><td>{field.sample_values.join(", ")}</td></tr>)}</tbody></table></div>}</details>
     <details><summary>{t.importing}</summary><label>{t.path}<input value={importPath} onChange={(event) => setImportPath(event.target.value)} /></label><button disabled={busy || !importPath} onClick={inspectImport}>{t.inspectImport}</button><button disabled={busy || !importSummary} onClick={approveImport}>{t.approveImport}</button><button disabled={busy || !importApprovalId} onClick={applyImport}>{t.applyImport}</button>{importSummary && <pre>{JSON.stringify(importSummary, null, 2)}</pre>}</details>
     <details><summary>{t.reports}</summary><label>{t.destination}<input value={destination} onChange={(event) => setDestination(event.target.value)} /></label><button disabled={busy || !approvalId || !destination} onClick={generate}>{t.generate}</button></details>
