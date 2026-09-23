@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from automation.reports import ArtifactStore, ReportDocument, ReportRequest
+from automation.reports.localization import excel_number_format
 from automation.reports.renderers import excel_metric_values, render_excel, render_html, render_pdf
 from openpyxl import load_workbook
 from io import BytesIO
@@ -168,6 +169,51 @@ def test_count_metric_without_field_uses_record_count_source() -> None:
     finally:
         workbook.close()
     assert "<small>Source fields: record count</small>" in render_html(report)
+
+
+def _localized_document(language: str, *, amount: float) -> ReportDocument:
+    spec = valid_spec()
+    payload = spec.model_dump(mode="json")
+    payload["localization"]["language"] = language
+    return ReportDocument(
+        specification=type(spec).model_validate(payload),
+        records=[{"category": "A", "amount": amount}],
+        metrics={"total": amount},
+        synthetic=True,
+    )
+
+
+def test_localization_keeps_metric_values_identical_and_only_formatting_differs() -> None:
+    amount = 1234.5
+    en_report = _localized_document("en", amount=amount)
+    pt_report = _localized_document("pt-BR", amount=amount)
+
+    assert en_report.metrics == pt_report.metrics == {"total": amount}
+    assert excel_metric_values(render_excel(en_report)) == {"Total": amount}
+    assert excel_metric_values(render_excel(pt_report)) == {"Total": amount}
+
+    en_html = render_html(en_report)
+    pt_html = render_html(pt_report)
+    assert 'data-metric="total">1,234.50<' in en_html
+    assert 'data-metric="total">1.234,50<' in pt_html
+
+
+def test_excel_number_format_matches_language() -> None:
+    amount = 1234.5
+    en_report = _localized_document("en", amount=amount)
+    pt_report = _localized_document("pt-BR", amount=amount)
+
+    en_workbook = load_workbook(BytesIO(render_excel(en_report)), data_only=False)
+    pt_workbook = load_workbook(BytesIO(render_excel(pt_report)), data_only=False)
+    try:
+        en_format = en_workbook["Summary"]["B3"].number_format
+        pt_format = pt_workbook["Resumo"]["B3"].number_format
+        assert en_format == excel_number_format(language="en")
+        assert pt_format == excel_number_format(language="pt")
+        assert en_format != pt_format
+    finally:
+        en_workbook.close()
+        pt_workbook.close()
 
 
 def test_portuguese_source_fields_label_is_rendered() -> None:

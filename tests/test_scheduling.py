@@ -144,6 +144,62 @@ def test_runner_is_idempotent_and_keeps_last_success_after_failure(tmp_path: Pat
     assert len(store.list_artifacts(schedule_id="schedule-1")) == 2
 
 
+class _FakeNotifier:
+    def __init__(self, *, sent: bool) -> None:
+        self.sent = sent
+        self.calls: list[tuple[ScheduleDefinition, RunRecord]] = []
+
+    def notify_failure(self, schedule: ScheduleDefinition, run: RunRecord) -> bool:
+        self.calls.append((schedule, run))
+        return self.sent
+
+
+def _failing_execute(schedule: ScheduleDefinition):
+    raise RuntimeError("source unavailable")
+
+
+def test_notifies_on_failure_when_enabled(tmp_path: Path) -> None:
+    store = ScheduleStore(tmp_path / "state.sqlite3")
+    store.create_schedule(definition(tmp_path, notify_on_failure=True))
+    notifier = _FakeNotifier(sent=True)
+
+    runner = LocalPipelineRunner(store, _failing_execute, notifier=notifier)
+    run = runner.run("schedule-1", scheduled_for=datetime(2026, 8, 11, 12, tzinfo=timezone.utc))
+
+    assert run.status is RunStatus.FAILED
+    assert run.notification_sent is True
+    assert len(notifier.calls) == 1
+    called_schedule, called_run = notifier.calls[0]
+    assert called_schedule.id == "schedule-1"
+    assert called_run.status is RunStatus.FAILED
+
+
+def test_does_not_notify_when_disabled(tmp_path: Path) -> None:
+    store = ScheduleStore(tmp_path / "state.sqlite3")
+    store.create_schedule(definition(tmp_path, notify_on_failure=False))
+    notifier = _FakeNotifier(sent=True)
+
+    runner = LocalPipelineRunner(store, _failing_execute, notifier=notifier)
+    run = runner.run("schedule-1", scheduled_for=datetime(2026, 8, 11, 12, tzinfo=timezone.utc))
+
+    assert run.status is RunStatus.FAILED
+    assert run.notification_sent is False
+    assert notifier.calls == []
+
+
+def test_notification_failure_does_not_crash_the_run(tmp_path: Path) -> None:
+    store = ScheduleStore(tmp_path / "state.sqlite3")
+    store.create_schedule(definition(tmp_path, notify_on_failure=True))
+    notifier = _FakeNotifier(sent=False)
+
+    runner = LocalPipelineRunner(store, _failing_execute, notifier=notifier)
+    run = runner.run("schedule-1", scheduled_for=datetime(2026, 8, 11, 12, tzinfo=timezone.utc))
+
+    assert run.status is RunStatus.FAILED
+    assert run.notification_sent is False
+    assert len(notifier.calls) == 1
+
+
 def test_partial_artifact_failure_does_not_destroy_last_successful_file(tmp_path: Path) -> None:
     store = ScheduleStore(tmp_path / "state.sqlite3")
     store.create_schedule(definition(tmp_path, outputs=["pdf", "xlsx"]))
